@@ -132,8 +132,6 @@ docker-compose up -d
 # 后端API文档：http://localhost:8000/docs
 ```
 
-> **⚠️ 注意**：如果遇到 Docker 镜像拉取失败（网络连接问题），请参考 [Docker网络问题解决方案.md](Docker网络问题解决方案.md) 配置镜像加速器。
-
 ### 方式二：本地开发启动
 
 #### 后端启动

@@ -102,7 +102,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Delete } from '@element-plus/icons-vue'
-import { backupsApi, type BackupListParams } from '../api/backups'
+import { backupsApi } from '../api/backups'
 import type { BackupRecord } from '../types/backup'
 import type { ApiError } from '../types/common'
 import dayjs from 'dayjs'

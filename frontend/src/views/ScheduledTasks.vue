@@ -153,7 +153,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
-import { scheduledTasksApi, type ScheduledTaskListParams } from '../api/scheduledTasks'
+import { scheduledTasksApi } from '../api/scheduledTasks'
 import type {
   ScheduledTask,
   ScheduledTaskCreateRequest,
