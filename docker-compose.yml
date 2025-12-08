@@ -40,7 +40,7 @@ services:
       - S3_ENABLED=${S3_ENABLED:-false}
       - CACHE_ENABLED=${CACHE_ENABLED:-true}
       - CACHE_DIR=/app/cache
-      - STORAGE_DIR=/app/crawled_data
+      - STORAGE_LOCAL_DIR=/app/crawled_data
     volumes:
       - ./crawled_data:/app/crawled_data
       - ./cache:/app/cache
