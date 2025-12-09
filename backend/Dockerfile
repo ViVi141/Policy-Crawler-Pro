@@ -7,19 +7,19 @@ WORKDIR /app
 # Debian 12 使用新的 deb822 格式，需要同时处理 .sources 和 sources.list
 RUN set -e; \
     # 备份原有配置 \
-    mkdir -p /tmp/apt-backup 2>/dev/null || true; \
+    mkdir -p /tmp/apt-backup || true; \
     # 重命名 .sources 文件（避免新格式干扰） \
     if [ -d /etc/apt/sources.list.d ]; then \
-        for f in /etc/apt/sources.list.d/*.sources 2>/dev/null; do \
-            [ -f "$f" ] && mv "$f" "/tmp/apt-backup/$(basename $f)" 2>/dev/null || true; \
-        done; \
+        for f in /etc/apt/sources.list.d/*.sources; do \
+            [ -f "$f" ] && mv "$f" "/tmp/apt-backup/$(basename $f)" || true; \
+        done 2>/dev/null || true; \
     fi; \
     # 强制创建/覆盖 sources.list（确保使用镜像源） \
     echo "deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm main contrib non-free non-free-firmware" > /etc/apt/sources.list && \
     echo "deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm-updates main contrib non-free non-free-firmware" >> /etc/apt/sources.list && \
     echo "deb https://mirrors.tuna.tsinghua.edu.cn/debian-security bookworm-security main contrib non-free non-free-firmware" >> /etc/apt/sources.list && \
-    echo "✅ APT 镜像源已配置为清华大学镜像" && \
-    echo "=== 当前 sources.list 内容 ===" && \
+    echo "APT mirror configured: Tsinghua University" && \
+    echo "=== Current sources.list ===" && \
     cat /etc/apt/sources.list
 
 # 安装构建依赖（添加重试机制和超时设置）
@@ -58,9 +58,9 @@ COPY --from=builder /root/.local /root/.local
 RUN set -e; \
     # 重命名 .sources 文件（避免新格式干扰） \
     if [ -d /etc/apt/sources.list.d ]; then \
-        for f in /etc/apt/sources.list.d/*.sources 2>/dev/null; do \
-            [ -f "$f" ] && mv "$f" "$f.bak" 2>/dev/null || true; \
-        done; \
+        for f in /etc/apt/sources.list.d/*.sources; do \
+            [ -f "$f" ] && mv "$f" "$f.bak" || true; \
+        done 2>/dev/null || true; \
     fi; \
     # 强制覆盖 sources.list \
     echo "deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm main contrib non-free non-free-firmware" > /etc/apt/sources.list && \
