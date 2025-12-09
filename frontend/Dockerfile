@@ -27,7 +27,7 @@ ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 RUN npm run build
 
 # 运行阶段 - 使用更小的nginx镜像
-FROM nginx:1.28-alpine
+FROM nginx:1.29-alpine
 
 # 配置 Alpine 镜像源（使用清华大学镜像，加速下载）
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories
