@@ -8,6 +8,7 @@ RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/re
 RUN apk add --no-cache python3
 
 # 复制包装脚本并设置为 entrypoint
+# 注意：构建上下文是 ./database，所以这里直接使用文件名
 COPY docker-entrypoint-wrapper.sh /usr/local/bin/docker-entrypoint-wrapper.sh
 
 # 设置执行权限并验证文件
