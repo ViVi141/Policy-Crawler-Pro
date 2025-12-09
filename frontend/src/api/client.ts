@@ -1,4 +1,4 @@
-import axios, { type AxiosInstance, type AxiosResponse } from 'axios'
+import axios, { type AxiosInstance, type AxiosResponse, type AxiosError } from 'axios'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -21,7 +21,7 @@ apiClient.interceptors.request.use(
     }
     return config
   },
-  (error) => {
+  (error: AxiosError) => {
     return Promise.reject(error)
   }
 )
@@ -31,7 +31,7 @@ apiClient.interceptors.response.use(
   (response: AxiosResponse) => {
     return response
   },
-  async (error) => {
+  async (error: AxiosError) => {
     // 401错误，清除token并跳转到登录页
     if (error.response?.status === 401) {
       localStorage.removeItem('token')

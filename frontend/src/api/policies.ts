@@ -45,7 +45,7 @@ export const policiesApi = {
       const data = res.data
       // 转换响应格式：后端返回 skip/limit，前端期望 page/page_size
       // 同时处理日期字段：后端返回 pub_date，前端期望 publish_date
-      const items = (data.items || []).map((item: Record<string, unknown>) => ({
+      const items = (data.items || []).map((item: Partial<Policy> & Record<string, string | number | boolean | null | undefined>) => ({
         ...item,
         publish_date: item.publish_date || (item.pub_date ? String(item.pub_date) : null),
         law_type: item.level || item.law_type, // 兼容字段名

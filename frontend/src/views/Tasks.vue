@@ -258,13 +258,13 @@
                 {{ currentTask.created_at ? formatDateTime(currentTask.created_at) : '-' }}
               </el-descriptions-item>
               <el-descriptions-item label="开始时间">
-                {{ (currentTask.started_at || (currentTask as any).start_time) ? formatDateTime(currentTask.started_at || (currentTask as any).start_time || '') : '-' }}
+                {{ (currentTask.started_at || currentTask.start_time) ? formatDateTime((currentTask.started_at || currentTask.start_time || '')) : '-' }}
               </el-descriptions-item>
               <el-descriptions-item label="完成时间">
-                {{ (currentTask.completed_at || (currentTask as any).end_time) ? formatDateTime(currentTask.completed_at || (currentTask as any).end_time || '') : '-' }}
+                {{ (currentTask.completed_at || currentTask.end_time) ? formatDateTime((currentTask.completed_at || currentTask.end_time || '')) : '-' }}
               </el-descriptions-item>
               <el-descriptions-item label="执行时长">
-                {{ getDuration(currentTask.started_at || (currentTask as any).start_time, currentTask.completed_at || (currentTask as any).end_time) }}
+                {{ getDuration(currentTask.started_at || currentTask.start_time, currentTask.completed_at || currentTask.end_time) }}
               </el-descriptions-item>
               <el-descriptions-item v-if="currentTask.task_type === 'crawl_task'" label="统计信息" :span="2">
                 <div class="stats">

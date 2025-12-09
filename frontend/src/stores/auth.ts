@@ -30,7 +30,7 @@ export const useAuthStore = defineStore('auth', () => {
       const userInfo = await authApi.getCurrentUser()
       setUser(userInfo)
       return userInfo
-    } catch (error) {
+    } catch (error: unknown) {
       logout()
       throw error
     }

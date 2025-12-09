@@ -14,8 +14,8 @@ import './styles/main.scss'
 const app = createApp(App)
 
 // 注册Element Plus图标
-for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
-  app.component(key, component)
+for (const [key, component] of Object.entries(ElementPlusIconsVue) as [string, unknown][]) {
+  app.component(key, component as Parameters<typeof app.component>[1])
 }
 
 app.use(createPinia())
