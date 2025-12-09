@@ -8,14 +8,13 @@ RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/re
 # 更新包索引并安装 Python3 用于生成随机密码（添加错误处理和重试，支持跨平台构建）
 RUN set -e; \
     echo "正在更新包索引..."; \
-    apk update --no-cache || (sleep 5 && apk update --no-cache) || true; \
+    apk update --no-cache || (sleep 5 && apk update --no-cache); \
     echo "正在安装 Python3..."; \
-    apk add --no-cache python3 || (sleep 5 && apk update --no-cache && apk add --no-cache python3) || \
-    (echo "警告: Python3 安装失败，尝试使用 python3-mini..." && apk add --no-cache python3-mini || true); \
+    apk add --no-cache python3 && \
     echo "正在安装 pip..."; \
-    apk add --no-cache py3-pip || (echo "pip 安装失败，将使用 python3 -m ensurepip" && python3 -m ensurepip --upgrade || true); \
-    python3 --version || echo "警告: 无法验证 Python3 版本"; \
-    echo "Python3 安装完成"
+    apk add --no-cache py3-pip && \
+    python3 --version && \
+    echo "✅ Python3 安装完成"
 
 # 复制 entrypoint wrapper 脚本并确保使用 LF 换行符
 COPY docker-entrypoint-wrapper.sh /tmp/docker-entrypoint-wrapper.sh
@@ -47,8 +46,8 @@ RUN chmod -R 755 /usr/local/share/postgresql/extension 2>/dev/null || true
 # 设置 entrypoint
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint-wrapper.sh"]
 
-# 设置健康检查
-HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=5 \
-    CMD pg_isready -U ${POSTGRES_USER:-postgres} || exit 1
+# 设置健康检查（与 docker-compose.yml 保持一致）
+HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --retries=5 \
+    CMD pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres} || exit 1
 
 WORKDIR /
