@@ -3,24 +3,38 @@ FROM python:3.12.10-slim AS builder
 
 WORKDIR /app
 
-# 配置 Debian 镜像源（使用清华大学镜像，加速下载，支持多版本）
-RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
-        sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources; \
-    elif [ -f /etc/apt/sources.list ]; then \
-        sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list; \
-    else \
-        echo "deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm main contrib non-free non-free-firmware" > /etc/apt/sources.list && \
-        echo "deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm-updates main contrib non-free non-free-firmware" >> /etc/apt/sources.list && \
-        echo "deb https://mirrors.tuna.tsinghua.edu.cn/debian-security bookworm-security main contrib non-free non-free-firmware" >> /etc/apt/sources.list; \
-    fi
+# 配置 Debian 镜像源（强制使用清华大学镜像，确保生效）
+# Debian 12 使用新的 deb822 格式，需要同时处理 .sources 和 sources.list
+RUN set -e; \
+    # 备份原有配置 \
+    mkdir -p /tmp/apt-backup 2>/dev/null || true; \
+    # 重命名 .sources 文件（避免新格式干扰） \
+    if [ -d /etc/apt/sources.list.d ]; then \
+        for f in /etc/apt/sources.list.d/*.sources 2>/dev/null; do \
+            [ -f "$f" ] && mv "$f" "/tmp/apt-backup/$(basename $f)" 2>/dev/null || true; \
+        done; \
+    fi; \
+    # 强制创建/覆盖 sources.list（确保使用镜像源） \
+    echo "deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm main contrib non-free non-free-firmware" > /etc/apt/sources.list && \
+    echo "deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm-updates main contrib non-free non-free-firmware" >> /etc/apt/sources.list && \
+    echo "deb https://mirrors.tuna.tsinghua.edu.cn/debian-security bookworm-security main contrib non-free non-free-firmware" >> /etc/apt/sources.list && \
+    echo "✅ APT 镜像源已配置为清华大学镜像" && \
+    echo "=== 当前 sources.list 内容 ===" && \
+    cat /etc/apt/sources.list
 
 # 安装构建依赖（添加重试机制和超时设置）
-RUN apt-get update --fix-missing && \
+RUN set -e; \
+    echo "正在更新软件包列表..."; \
+    apt-get update --fix-missing || (sleep 5 && apt-get update --fix-missing); \
+    echo "正在安装构建依赖..."; \
     apt-get install -y --no-install-recommends \
     gcc \
     g++ \
     postgresql-client \
-    && rm -rf /var/lib/apt/lists/*
+    || (echo "安装失败，等待后重试..." && sleep 10 && apt-get update --fix-missing && \
+        apt-get install -y --no-install-recommends gcc g++ postgresql-client); \
+    rm -rf /var/lib/apt/lists/* && \
+    echo "构建依赖安装完成"
 
 # 复制依赖文件
 COPY requirements.txt .
@@ -40,12 +54,18 @@ WORKDIR /app
 # 从构建阶段复制已安装的包
 COPY --from=builder /root/.local /root/.local
 
-# 配置镜像源（生产阶段）
-RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
-        sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources; \
-    elif [ -f /etc/apt/sources.list ]; then \
-        sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list; \
-    fi || true
+# 配置镜像源（生产阶段，强制使用镜像源）
+RUN set -e; \
+    # 重命名 .sources 文件（避免新格式干扰） \
+    if [ -d /etc/apt/sources.list.d ]; then \
+        for f in /etc/apt/sources.list.d/*.sources 2>/dev/null; do \
+            [ -f "$f" ] && mv "$f" "$f.bak" 2>/dev/null || true; \
+        done; \
+    fi; \
+    # 强制覆盖 sources.list \
+    echo "deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm main contrib non-free non-free-firmware" > /etc/apt/sources.list && \
+    echo "deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm-updates main contrib non-free non-free-firmware" >> /etc/apt/sources.list && \
+    echo "deb https://mirrors.tuna.tsinghua.edu.cn/debian-security bookworm-security main contrib non-free non-free-firmware" >> /etc/apt/sources.list || true
 
 # 安装运行时依赖
 RUN apt-get update --fix-missing && \
