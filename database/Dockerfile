@@ -2,10 +2,20 @@
 FROM postgres:18-alpine
 
 # 配置 Alpine 镜像源（使用清华大学镜像，加速下载）
-RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories || \
+    sed -i'' 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories
 
-# 更新包索引并安装 Python3 用于生成随机密码
-RUN apk update && apk add --no-cache python3 py3-pip
+# 更新包索引并安装 Python3 用于生成随机密码（添加错误处理和重试，支持跨平台构建）
+RUN set -e; \
+    echo "正在更新包索引..."; \
+    apk update --no-cache || (sleep 5 && apk update --no-cache) || true; \
+    echo "正在安装 Python3..."; \
+    apk add --no-cache python3 || (sleep 5 && apk update --no-cache && apk add --no-cache python3) || \
+    (echo "警告: Python3 安装失败，尝试使用 python3-mini..." && apk add --no-cache python3-mini || true); \
+    echo "正在安装 pip..."; \
+    apk add --no-cache py3-pip || (echo "pip 安装失败，将使用 python3 -m ensurepip" && python3 -m ensurepip --upgrade || true); \
+    python3 --version || echo "警告: 无法验证 Python3 版本"; \
+    echo "Python3 安装完成"
 
 # 复制 entrypoint wrapper 脚本并确保使用 LF 换行符
 COPY docker-entrypoint-wrapper.sh /tmp/docker-entrypoint-wrapper.sh

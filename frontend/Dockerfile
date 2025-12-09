@@ -1,5 +1,5 @@
 # 构建阶段
-FROM node:25-alpine AS builder
+FROM node:24-alpine AS builder
 
 # 配置 Alpine 镜像源（使用清华大学镜像，加速下载）
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories
@@ -13,8 +13,13 @@ RUN npm config set registry https://registry.npmmirror.com
 COPY package.json package-lock.json* ./
 
 # 升级npm并安装依赖（使用npm ci确保依赖一致性，添加超时和重试）
-RUN npm install -g npm@latest --timeout=300000 && \
-    npm ci --legacy-peer-deps --prefer-offline --no-audit --timeout=300000
+RUN set -e; \
+    echo "正在升级 npm..."; \
+    npm install -g npm@latest --timeout=300000 || (echo "npm 升级失败，使用现有版本" && npm --version); \
+    echo "正在安装依赖..."; \
+    npm ci --legacy-peer-deps --prefer-offline --no-audit --timeout=300000 || \
+    (echo "npm ci 失败，尝试使用 npm install..." && npm install --legacy-peer-deps --prefer-offline --no-audit --timeout=300000); \
+    echo "依赖安装完成"
 
 # 复制源代码（在依赖安装后，优化构建缓存）
 COPY . .
