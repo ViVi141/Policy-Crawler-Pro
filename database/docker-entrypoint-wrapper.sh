@@ -62,22 +62,38 @@ if [ -z "$POSTGRES_PASSWORD" ] || [ "$POSTGRES_PASSWORD" = "mnr_password" ]; the
 fi
 
 echo "=== 准备执行 PostgreSQL entrypoint ===" >&2
+echo "传递给 entrypoint 的参数: $@" >&2
+echo "参数数量: $#" >&2
 
 # 执行原始的 PostgreSQL entrypoint（传递所有参数）
 # 在 postgres:18-alpine 中，entrypoint 通常在 /usr/local/bin/docker-entrypoint.sh
 # 如果不存在，尝试其他可能的位置
 if [ -f /usr/local/bin/docker-entrypoint.sh ]; then
     echo "找到: /usr/local/bin/docker-entrypoint.sh" >&2
-    exec /usr/local/bin/docker-entrypoint.sh "$@"
+    # 如果没有参数，默认传递 'postgres'（PostgreSQL 的默认命令）
+    if [ $# -eq 0 ]; then
+        echo "警告: 没有参数，使用默认参数 'postgres'" >&2
+        exec /usr/local/bin/docker-entrypoint.sh postgres
+    else
+        exec /usr/local/bin/docker-entrypoint.sh "$@"
+    fi
 elif [ -f /docker-entrypoint.sh ]; then
     echo "找到: /docker-entrypoint.sh" >&2
-    exec /docker-entrypoint.sh "$@"
+    if [ $# -eq 0 ]; then
+        exec /docker-entrypoint.sh postgres
+    else
+        exec /docker-entrypoint.sh "$@"
+    fi
 else
     echo "搜索 docker-entrypoint.sh..." >&2
     ENTRYPOINT_PATH=$(find / -name "docker-entrypoint.sh" -type f 2>/dev/null | head -1)
     if [ -n "$ENTRYPOINT_PATH" ]; then
         echo "找到: $ENTRYPOINT_PATH" >&2
-        exec "$ENTRYPOINT_PATH" "$@"
+        if [ $# -eq 0 ]; then
+            exec "$ENTRYPOINT_PATH" postgres
+        else
+            exec "$ENTRYPOINT_PATH" "$@"
+        fi
     else
         echo "❌ 错误: 未找到 docker-entrypoint.sh，尝试直接启动 postgres" >&2
         exec postgres "$@"
