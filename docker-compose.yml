@@ -1,10 +1,15 @@
+version: '3.8'
+
 services:
   # PostgreSQL数据库（自主创建，不依赖外部环境）
   # 使用PostgreSQL 18-alpine（对应18.1版本，支持中文分词zhparser）
+  # 如果未设置 POSTGRES_PASSWORD，将自动生成随机密码
   db:
     build:
       context: ./database
       dockerfile: Dockerfile
+      args:
+        - BUILDKIT_INLINE_CACHE=1
     container_name: mnr-crawler-db
     restart: unless-stopped
     environment:
@@ -12,8 +17,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-mnr_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mnr_password}
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+      PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - postgres_secrets:/run/secrets
       - ./backend/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
@@ -22,58 +29,137 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 10s
+      start_period: 30s
     networks:
-      - default
+      - backend-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   # 后端服务（自动创建数据库表、默认用户，无需额外配置）
+  # 如果未设置 JWT_SECRET_KEY，将自动生成随机密钥
+  # 如果未设置 POSTGRES_PASSWORD，将从数据库容器读取自动生成的密码
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      target: production
+      args:
+        - BUILDKIT_INLINE_CACHE=1
     container_name: mnr-crawler-backend
     restart: unless-stopped
     environment:
+      - POSTGRES_USER=${POSTGRES_USER:-mnr_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-mnr_password}
+      - POSTGRES_DB=${POSTGRES_DB:-mnr_crawler}
+      - DB_HOST=db
+      - DB_PORT=5432
       - DATABASE_URL=postgresql://${POSTGRES_USER:-mnr_user}:${POSTGRES_PASSWORD:-mnr_password}@db:5432/${POSTGRES_DB:-mnr_crawler}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-me-in-production}
       - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
+      - JWT_EXPIRE_MINUTES=${JWT_EXPIRE_MINUTES:-1440}
       - S3_ENABLED=${S3_ENABLED:-false}
       - CACHE_ENABLED=${CACHE_ENABLED:-true}
       - CACHE_DIR=/app/cache
       - STORAGE_LOCAL_DIR=/app/crawled_data
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DEBUG=${DEBUG:-false}
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
     volumes:
-      - ./crawled_data:/app/crawled_data
-      - ./cache:/app/cache
-      - ./logs:/app/logs
-      - ./backend:/app
+      - crawled_data:/app/crawled_data
+      - cache_data:/app/cache
+      - logs_data:/app/logs
+      - postgres_secrets:/run/secrets:ro
+      # 开发模式：取消注释以下行以启用热重载
+      # - ./backend:/app
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     depends_on:
       db:
         condition: service_healthy
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health').read()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - backend-network
+      - frontend-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   # 前端服务
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+        - VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://localhost:8000}
     container_name: mnr-crawler-frontend
     restart: unless-stopped
     ports:
       - "${FRONTEND_PORT:-3000}:80"
     depends_on:
-      - backend
-    environment:
-      - VITE_API_BASE_URL=http://localhost:8000
+      backend:
+        condition: service_healthy
     networks:
-      - default
+      - frontend-network
+      - backend-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
 
 volumes:
   postgres_data:
     driver: local
+  postgres_secrets:
+    driver: local
+  crawled_data:
+    driver: local
+  cache_data:
+    driver: local
+  logs_data:
+    driver: local
 
 networks:
-  default:
-    name: mnr-crawler-network
+  backend-network:
+    name: mnr-crawler-backend
+    driver: bridge
+  frontend-network:
+    name: mnr-crawler-frontend
+    driver: bridge
 

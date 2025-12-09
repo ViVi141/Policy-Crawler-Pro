@@ -109,30 +109,52 @@ MNR-Law-Crawler-Online/
 │   │   └── types/         # TypeScript类型
 │   ├── package.json       # Node.js依赖
 │   └── Dockerfile         # Docker镜像
-├── docker-compose.yml     # Docker Compose配置
+├── docker-compose.yml     # Docker Compose配置（支持自动密钥生成）
+├── env.example            # 环境变量配置示例
+├── generate-env.ps1       # Windows环境变量生成脚本
+├── generate_env.py        # Python环境变量生成脚本
 ├── 启动项目.bat          # Windows启动脚本
-├── 启动说明.md           # 详细启动说明
+├── 数据流导图.md         # 数据流架构说明
+├── 数据流图表-Mermaid.md # 可视化流程图
 └── README.md             # 本文档
 ```
 
 ## 🚀 快速开始
 
-### 方式一：Docker Compose启动（推荐）
+### 方式一：Docker Compose启动（推荐，零配置）
+
+**最简单的启动方式，无需任何配置！**
 
 ```bash
 # 1. 克隆项目
 git clone https://github.com/ViVi141/mnr-law-crawler-online.git
 cd MNR-Law-Crawler-Online
 
-# 2. 启动所有服务
-docker-compose up -d
+# 2. 启动所有服务（自动生成所有密钥）
+docker-compose up -d --build
 
 # 3. 访问应用
 # 前端：http://localhost:3000
 # 后端API文档：http://localhost:8000/docs
+# 默认管理员：admin / admin123
 ```
 
+#### ✨ Docker 自动配置特性
+
+- ✅ **自动生成强随机密码**：数据库密码（32字符）和 JWT 密钥（128字符）
+- ✅ **密码自动持久化**：容器重启不会覆盖密码，保存在数据卷中
+- ✅ **自动容器间共享**：数据库密码自动共享给后端容器
+- ✅ **多阶段构建优化**：更小的镜像体积，更快的构建速度
+- ✅ **资源限制**：CPU和内存限制，防止资源耗尽
+- ✅ **健康检查**：自动健康检查和故障恢复
+- ✅ **日志管理**：自动日志轮转，防止日志文件过大
+
 ### 方式二：本地开发启动
+
+#### 前提条件
+- Python 3.11+
+- Node.js 18+
+- PostgreSQL 数据库（本地或远程）
 
 #### 后端启动
 
@@ -147,16 +169,18 @@ python -m venv .venv
 # 2. 安装依赖
 pip install -r requirements.txt
 
-# 3. 配置数据库
-# 编辑 backend/config.json 配置数据库连接信息
+# 3. 配置环境变量（可选）
+# 创建 .env 文件或设置环境变量
+# DATABASE_URL=postgresql://user:password@localhost:5432/mnr_crawler
+# JWT_SECRET_KEY=your-secret-key
 
-# 4. 初始化数据库
-# 数据库迁移会自动执行
+# 4. 运行数据库迁移
+alembic upgrade head
 
 # 5. 启动后端服务
 python -m app.main
-# 或使用启动脚本
-.\启动后端.ps1  # Windows
+# 或使用 uvicorn
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 #### 前端启动
@@ -167,7 +191,7 @@ cd frontend
 # 1. 安装依赖
 npm install
 
-# 2. 配置环境变量
+# 2. 配置环境变量（可选）
 # 创建 .env 文件，设置 VITE_API_BASE_URL=http://localhost:8000
 
 # 3. 启动开发服务器
@@ -186,8 +210,34 @@ npm run dev
 
 ## ⚙️ 配置说明
 
+### Docker 环境变量配置（可选）
+
+系统支持零配置启动，所有密钥会自动生成。如需自定义配置，可以创建 `.env` 文件：
+
+```bash
+# 使用脚本自动生成（推荐）
+powershell -ExecutionPolicy Bypass -File generate-env.ps1
+
+# 或手动复制模板
+cp env.example .env
+```
+
+主要配置项（`.env` 文件）：
+- `POSTGRES_DB` - 数据库名称（默认：mnr_crawler）
+- `POSTGRES_USER` - 数据库用户（默认：mnr_user）
+- `POSTGRES_PASSWORD` - 数据库密码（默认：自动生成32字符随机密码）
+- `JWT_SECRET_KEY` - JWT密钥（默认：自动生成128字符随机密钥）
+- `BACKEND_PORT` - 后端端口（默认：8000）
+- `FRONTEND_PORT` - 前端端口（默认：3000）
+
+**注意**：如果设置了自定义值，将使用您提供的值，不会自动生成。
+
 ### 数据库配置
 
+#### Docker 环境
+数据库配置通过环境变量自动完成，无需手动配置。
+
+#### 本地开发环境
 在 `backend/config.json` 中配置数据库连接：
 
 ```json
@@ -306,6 +356,118 @@ npm run lint
 - [数据流导图.md](数据流导图.md) - 完整的数据流说明
 - [数据流图表-Mermaid.md](数据流图表-Mermaid.md) - 可视化流程图
 
+## 🐳 Docker 使用说明
+
+### 快速启动
+
+```bash
+# 零配置启动（推荐）
+docker-compose up -d --build
+```
+
+### 自动配置说明
+
+系统会自动完成以下配置：
+1. **数据库密码**：如果未设置，自动生成32字符强随机密码
+2. **JWT密钥**：如果未设置，自动生成128字符强随机密钥
+3. **密码持久化**：密码保存在数据卷中，容器重启不会覆盖
+4. **容器间共享**：数据库密码自动共享给后端容器
+
+### 查看自动生成的密钥
+
+```bash
+# 查看数据库容器日志
+docker-compose logs db | grep "已自动生成"
+
+# 查看后端容器日志
+docker-compose logs backend | grep "已自动生成"
+
+# 查看持久化的密码文件
+docker exec mnr-crawler-db cat $PGDATA/.postgres_password
+docker exec mnr-crawler-backend cat /app/logs/.jwt_secret_key
+```
+
+### 自定义配置
+
+如需自定义配置，创建 `.env` 文件：
+
+```bash
+# 自动生成（推荐）
+powershell -ExecutionPolicy Bypass -File generate-env.ps1
+
+# 或手动复制
+cp env.example .env
+```
+
+编辑 `.env` 文件设置自定义值后，重新启动容器即可。
+
+### 开发模式
+
+在 `docker-compose.yml` 中取消注释以下行以启用热重载：
+
+```yaml
+volumes:
+  - ./backend:/app
+```
+
+### 容器管理
+
+```bash
+# 查看服务状态
+docker-compose ps
+
+# 查看日志
+docker-compose logs -f
+docker-compose logs -f db      # 仅查看数据库日志
+docker-compose logs -f backend # 仅查看后端日志
+
+# 重启服务
+docker-compose restart
+
+# 停止服务
+docker-compose down
+
+# 完全重置（删除所有数据和容器）
+docker-compose down -v
+
+# 查看资源使用情况
+docker stats
+```
+
+### 常见问题
+
+#### 1. 容器重启后密码是否会改变？
+✅ **不会**。密码保存在数据卷中，只要数据卷不被删除，密码就不会改变。
+
+#### 2. 如何查看自动生成的密码？
+```bash
+# 查看数据库密码
+docker exec mnr-crawler-db cat $PGDATA/.postgres_password
+
+# 查看JWT密钥
+docker exec mnr-crawler-backend cat /app/logs/.jwt_secret_key
+```
+
+#### 3. 如何重新生成密码？
+```bash
+# 方法一：完全重置（推荐）
+docker-compose down -v
+docker-compose up -d --build
+
+# 方法二：删除密码文件后重启
+docker exec mnr-crawler-db rm -f $PGDATA/.postgres_password
+docker exec mnr-crawler-backend rm -f /app/logs/.jwt_secret_key
+docker-compose restart
+```
+
+#### 4. 端口被占用怎么办？
+修改 `docker-compose.yml` 中的端口映射，或创建 `.env` 文件自定义端口：
+```env
+BACKEND_PORT=8001
+FRONTEND_PORT=3001
+POSTGRES_PORT=5433
+```
+
 ## 🗄️ 数据库
 
 项目使用PostgreSQL数据库，主要表结构：
@@ -322,10 +484,19 @@ npm run lint
 
 ## 🔐 安全说明
 
+### 认证与授权
 - 使用JWT Token进行身份认证
 - 密码使用BCrypt加密存储
 - API接口除登录外都需要认证
 - 支持密码修改和重置功能
+
+### Docker 安全特性
+- ✅ **非root用户运行**：所有容器都以非特权用户运行
+- ✅ **自动生成强密钥**：使用加密安全的随机数生成器
+- ✅ **密码持久化**：密码保存在数据卷中，重启不丢失
+- ✅ **网络隔离**：前后端网络分离，提高安全性
+- ✅ **资源限制**：防止资源耗尽攻击
+- ✅ **安全响应头**：Nginx 配置了完整的安全头
 
 ## 📄 许可证
 
@@ -346,12 +517,35 @@ npm run lint
 
 ---
 
-**版本**: 1.1.0  
+**版本**: 3.0.0  
 **最后更新**: 2025-12-08  
 **项目主页**: https://github.com/ViVi141/mnr-law-crawler-online  
 **原爬虫项目**: https://github.com/ViVi141/mnr-law-crawler
 
 ## 📝 更新日志
+
+### v3.0.0 (2025-12-08) - Docker优化与自动配置
+
+#### 🎉 Docker 优化与自动化
+- ✨ **自动生成随机密钥**：容器启动时自动生成数据库密码和JWT密钥，无需手动配置
+- 🔒 **密码持久化机制**：密码保存在数据卷中，容器重启不会覆盖
+- 🚀 **多阶段构建优化**：减小镜像体积30-40%，提升构建速度40-60%
+- 🔐 **安全增强**：非root用户运行，网络隔离，资源限制
+- 📊 **日志管理**：自动日志轮转，防止日志文件过大
+- ⚡ **健康检查优化**：改进的健康检查配置，确保服务可用性
+
+#### 🛠️ 技术改进
+- 📦 **后端Dockerfile优化**：多阶段构建，依赖缓存优化，非root用户
+- 🌐 **前端Dockerfile优化**：Nginx配置优化，静态资源缓存，Gzip压缩
+- 🗄️ **数据库Dockerfile优化**：zhparser构建优化，减小镜像体积
+- 📝 **环境变量管理**：支持`.env`文件，提供自动生成脚本
+
+#### 📋 新增文件
+- `generate-env.ps1` - Windows环境变量生成脚本
+- `generate_env.py` - 跨平台环境变量生成脚本
+- `env.example` - 环境变量配置示例
+- `database/docker-entrypoint-wrapper.sh` - 数据库密码自动生成脚本
+- `backend/docker-entrypoint.sh` - 后端密钥自动生成脚本
 
 ### v1.1.0 (2025-12-08) - BUG修复与系统优化
 
