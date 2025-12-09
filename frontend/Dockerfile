@@ -1,5 +1,5 @@
 # 构建阶段
-FROM node:24-alpine AS builder
+FROM node:25-alpine AS builder
 
 # 配置 Alpine 镜像源（使用清华大学镜像，加速下载）
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories
