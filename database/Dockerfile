@@ -9,7 +9,11 @@ RUN apk add --no-cache python3
 
 # 复制包装脚本并设置为 entrypoint
 COPY docker-entrypoint-wrapper.sh /usr/local/bin/docker-entrypoint-wrapper.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint-wrapper.sh
+
+# 验证文件已复制并设置权限
+RUN ls -la /usr/local/bin/docker-entrypoint-wrapper.sh && \
+    chmod +x /usr/local/bin/docker-entrypoint-wrapper.sh && \
+    test -f /usr/local/bin/docker-entrypoint-wrapper.sh || (echo "错误: docker-entrypoint-wrapper.sh 文件不存在" && exit 1)
 
 # 确保扩展目录权限正确
 RUN chmod -R 755 /usr/local/share/postgresql/extension
