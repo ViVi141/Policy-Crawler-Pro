@@ -6,14 +6,15 @@ RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/re
     sed -i'' 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories
 
 # 更新包索引并安装 Python3 用于生成随机密码（添加错误处理和重试，支持跨平台构建）
-RUN set -e; \
-    echo "正在更新包索引..."; \
-    apk update --no-cache || (sleep 5 && apk update --no-cache); \
-    echo "正在安装 Python3..."; \
-    apk add --no-cache python3 && \
-    echo "正在安装 pip..."; \
-    apk add --no-cache py3-pip && \
+# 注意：在跨平台构建（arm64 QEMU）时，某些 apk trigger 可能失败，需要忽略这些错误
+RUN echo "正在更新包索引..." && \
+    apk update --no-cache || (sleep 5 && apk update --no-cache) && \
+    echo "正在安装 Python3..." && \
+    (apk add --no-cache python3 || (echo "Python3 安装失败，重试..." && sleep 5 && apk update --no-cache && apk add --no-cache python3)) && \
     python3 --version && \
+    echo "正在安装 pip..." && \
+    (apk add --no-cache py3-pip 2>&1; exit 0) | grep -v "trigger" || true && \
+    (python3 -m pip --version 2>/dev/null || echo "⚠️ pip 可能未正确安装，但 Python3 可用") && \
     echo "✅ Python3 安装完成"
 
 # 复制 entrypoint wrapper 脚本并确保使用 LF 换行符
