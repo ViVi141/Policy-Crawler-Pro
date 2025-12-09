@@ -3,8 +3,20 @@ FROM python:3.12.10-slim AS builder
 
 WORKDIR /app
 
-# 安装构建依赖
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# 配置 Debian 镜像源（使用清华大学镜像，加速下载，支持多版本）
+RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+        sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources; \
+    elif [ -f /etc/apt/sources.list ]; then \
+        sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list; \
+    else \
+        echo "deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm main contrib non-free non-free-firmware" > /etc/apt/sources.list && \
+        echo "deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm-updates main contrib non-free non-free-firmware" >> /etc/apt/sources.list && \
+        echo "deb https://mirrors.tuna.tsinghua.edu.cn/debian-security bookworm-security main contrib non-free non-free-firmware" >> /etc/apt/sources.list; \
+    fi
+
+# 安装构建依赖（添加重试机制和超时设置）
+RUN apt-get update --fix-missing && \
+    apt-get install -y --no-install-recommends \
     gcc \
     g++ \
     postgresql-client \
@@ -13,9 +25,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 复制依赖文件
 COPY requirements.txt .
 
-# 升级pip并安装Python依赖（使用缓存层优化）
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir --user -r requirements.txt
+# 配置 pip 镜像源（使用清华大学镜像，加速下载）
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple || true
+
+# 升级pip并安装Python依赖（使用缓存层优化，添加超时和重试）
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel --timeout=300 --retries=5 && \
+    pip install --no-cache-dir --user -r requirements.txt --timeout=300 --retries=5
 
 # 生产阶段
 FROM python:3.12.10-slim AS production
@@ -25,8 +40,16 @@ WORKDIR /app
 # 从构建阶段复制已安装的包
 COPY --from=builder /root/.local /root/.local
 
+# 配置镜像源（生产阶段）
+RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+        sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources; \
+    elif [ -f /etc/apt/sources.list ]; then \
+        sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list; \
+    fi || true
+
 # 安装运行时依赖
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update --fix-missing && \
+    apt-get install -y --no-install-recommends \
     postgresql-client \
     curl \
     && rm -rf /var/lib/apt/lists/* \
@@ -74,7 +97,8 @@ FROM production AS development
 USER root
 
 # 安装开发工具
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update --fix-missing && \
+    apt-get install -y --no-install-recommends \
     vim \
     && rm -rf /var/lib/apt/lists/*
 

@@ -1,14 +1,20 @@
 # 构建阶段
 FROM node:24-alpine AS builder
 
+# 配置 Alpine 镜像源（使用清华大学镜像，加速下载）
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories
+
 WORKDIR /app
+
+# 配置 npm 镜像源（使用淘宝镜像，加速下载）
+RUN npm config set registry https://registry.npmmirror.com
 
 # 安装构建依赖（使用缓存层优化）
 COPY package.json package-lock.json* ./
 
-# 升级npm并安装依赖（使用npm ci确保依赖一致性）
-RUN npm install -g npm@latest && \
-    npm ci --legacy-peer-deps --prefer-offline --no-audit
+# 升级npm并安装依赖（使用npm ci确保依赖一致性，添加超时和重试）
+RUN npm install -g npm@latest --timeout=300000 && \
+    npm ci --legacy-peer-deps --prefer-offline --no-audit --timeout=300000
 
 # 复制源代码（在依赖安装后，优化构建缓存）
 COPY . .
@@ -22,6 +28,9 @@ RUN npm run build
 
 # 运行阶段 - 使用更小的nginx镜像
 FROM nginx:1.27-alpine
+
+# 配置 Alpine 镜像源（使用清华大学镜像，加速下载）
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories
 
 # 安装必要的工具用于健康检查
 RUN apk add --no-cache curl

@@ -1,7 +1,10 @@
 # PostgreSQL 18 with zhparser 中文分词支持
 FROM postgres:18-alpine
 
-# 安装编译工具和依赖（单层RUN以减小镜像层）
+# 配置 Alpine 镜像源（使用清华大学镜像，加速下载）
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories
+
+# 安装编译工具和依赖（单层RUN以减小镜像层，添加重试）
 RUN apk add --no-cache --virtual .build-deps \
     gcc \
     g++ \
@@ -12,14 +15,15 @@ RUN apk add --no-cache --virtual .build-deps \
     linux-headers \
     && mkdir -p /usr/local/share/postgresql/extension
 
-# 下载并编译安装 zhparser（使用缓存优化）
+# 下载并编译安装 zhparser（使用缓存优化，添加重试和超时）
 WORKDIR /tmp
-RUN git clone --depth 1 --branch master https://github.com/amutu/zhparser.git \
-    && cd zhparser \
-    && make \
-    && make install \
-    && cd .. \
-    && rm -rf zhparser
+RUN git clone --depth 1 --branch master https://github.com/amutu/zhparser.git || \
+    (sleep 5 && git clone --depth 1 --branch master https://github.com/amutu/zhparser.git) && \
+    cd zhparser && \
+    make && \
+    make install && \
+    cd .. && \
+    rm -rf zhparser
 
 # 清理编译工具和缓存（减小镜像大小）
 RUN apk del .build-deps \
