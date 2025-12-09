@@ -1,0 +1,15 @@
+# Actionlint 配置文件
+# 用于 GitHub Actions 工作流的静态检查工具
+
+self-hosted-runner:
+  labels:
+    - self-hosted
+    - linux
+    - windows
+    - macos
+
+shellcheck:
+  enabled: true
+
+pyflakes:
+  enabled: false

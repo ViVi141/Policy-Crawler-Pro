@@ -1,0 +1,119 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v3.0.0)'
+        required: true
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}
+
+jobs:
+  release:
+    name: Build and Release Docker Images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" == "release" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Version: ${VERSION}"
+
+      - name: Build and push backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          target: production
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/mnr-law-crawler-online-backend:${{ steps.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/mnr-law-crawler-online-backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+
+      - name: Build and push frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/mnr-law-crawler-online-frontend:${{ steps.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/mnr-law-crawler-online-frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+
+      - name: Build and push database
+        uses: docker/build-push-action@v5
+        with:
+          context: ./database
+          file: ./database/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/mnr-law-crawler-online-db:${{ steps.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/mnr-law-crawler-online-db:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+
+      - name: Generate release notes
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          ## 🎉 Release ${{ steps.version.outputs.version }}
+          
+          ### 🐳 Docker Images
+          
+          以下镜像已构建并推送到 GitHub Container Registry:
+          
+          - \`${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/mnr-law-crawler-online-backend:${{ steps.version.outputs.version }}\`
+          - \`${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/mnr-law-crawler-online-frontend:${{ steps.version.outputs.version }}\`
+          - \`${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/mnr-law-crawler-online-db:${{ steps.version.outputs.version }}\`
+          
+          ### 📦 使用方式
+          
+          \`\`\`bash
+          # 拉取镜像
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/mnr-law-crawler-online-backend:${{ steps.version.outputs.version }}
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/mnr-law-crawler-online-frontend:${{ steps.version.outputs.version }}
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/mnr-law-crawler-online-db:${{ steps.version.outputs.version }}
+          
+          # 或使用 docker-compose.yml（需要更新镜像名称）
+          \`\`\`
+          
+          ### 🔗 镜像链接
+          
+          - [Backend Image](https://github.com/${{ github.repository }}/pkgs/container/mnr-law-crawler-online-backend)
+          - [Frontend Image](https://github.com/${{ github.repository }}/pkgs/container/mnr-law-crawler-online-frontend)
+          - [Database Image](https://github.com/${{ github.repository }}/pkgs/container/mnr-law-crawler-online-db)
+          EOF

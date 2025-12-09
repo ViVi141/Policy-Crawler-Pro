@@ -1,5 +1,8 @@
 # MNR Law Crawler Online (自然资源部法规爬虫系统 - Web版)
 
+[![CI/CD Pipeline](https://github.com/ViVi141/mnr-law-crawler-online/actions/workflows/ci.yml/badge.svg)](https://github.com/ViVi141/mnr-law-crawler-online/actions/workflows/ci.yml)
+[![Docker Compose Test](https://github.com/ViVi141/mnr-law-crawler-online/actions/workflows/docker-compose.yml/badge.svg)](https://github.com/ViVi141/mnr-law-crawler-online/actions/workflows/docker-compose.yml)
+
 > **Web化政策法规库管理系统** - 集爬取、存储、搜索、管理于一体的现代化政策法规库系统
 
 **English**: MNR Law Crawler Online | **中文**: 自然资源部法规爬虫系统（Web版）
@@ -709,6 +712,35 @@ docker-compose build backend 2>&1 | tee backend-build.log
 ## 🤝 贡献
 
 欢迎提交Issue和Pull Request！
+
+### CI/CD 状态
+
+本项目使用 GitHub Actions 进行持续集成和部署：
+
+- ✅ **自动构建**: 每次推送代码时自动构建 Docker 镜像
+- ✅ **自动测试**: 运行后端和前端测试
+- ✅ **安全扫描**: 使用 Trivy 进行安全漏洞扫描
+- ✅ **自动发布**: 创建 Release 时自动构建并推送镜像到 GitHub Container Registry
+
+### 镜像地址
+
+所有 Docker 镜像已发布到 GitHub Container Registry：
+
+- `ghcr.io/vivi141/mnr-law-crawler-online-backend:latest`
+- `ghcr.io/vivi141/mnr-law-crawler-online-frontend:latest`
+- `ghcr.io/vivi141/mnr-law-crawler-online-db:latest`
+
+### 使用发布的镜像
+
+```bash
+# 拉取最新镜像
+docker pull ghcr.io/vivi141/mnr-law-crawler-online-backend:latest
+docker pull ghcr.io/vivi141/mnr-law-crawler-online-frontend:latest
+docker pull ghcr.io/vivi141/mnr-law-crawler-online-db:latest
+
+# 或使用特定版本
+docker pull ghcr.io/vivi141/mnr-law-crawler-online-backend:v3.0.0
+```
 
 ## 📞 支持
 

@@ -144,6 +144,9 @@ desktop.ini
 docker-compose.override.yml
 docker-compose.local.yml
 
+# GitHub Actions
+.github/workflows/*.local.yml
+
 # IDE
 *.swp
 *.swo
