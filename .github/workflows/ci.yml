@@ -251,10 +251,18 @@ jobs:
       contents: read
       security-events: write
       actions: read
+      packages: read
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run Trivy filesystem scan
         uses: aquasecurity/trivy-action@0.28.0
@@ -266,31 +274,159 @@ jobs:
           severity: 'CRITICAL,HIGH'
           exit-code: '0'  # 不阻塞构建，仅报告
 
-      - name: Scan Docker images
+      - name: Determine image tags
+        id: image-tags
+        run: |
+          # 根据事件类型确定可能的镜像标签
+          TAGS=""
+          
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            TAGS="pr-${{ github.event.pull_request.number }} pr-${{ github.event.pull_request.number }}-${{ github.sha }}"
+          elif [ "${{ github.event_name }}" == "release" ]; then
+            TAGS="${{ github.event.release.tag_name }} latest"
+          elif [ "${{ github.ref }}" == "refs/heads/main" ] || [ "${{ github.ref }}" == "refs/heads/master" ]; then
+            TAGS="latest main-${{ github.sha }} master-${{ github.sha }}"
+          else
+            BRANCH_NAME=$(echo "${{ github.ref }}" | sed 's/refs\/heads\///' | sed 's/\//-/g')
+            TAGS="${BRANCH_NAME} ${BRANCH_NAME}-${{ github.sha }}"
+          fi
+          
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
+          echo "可能的镜像标签: ${TAGS}"
+
+      - name: Check if backend image exists
+        id: check-backend-image
+        continue-on-error: true
+        run: |
+          # 尝试多个可能的标签
+          TAGS='${{ steps.image-tags.outputs.tags }}'
+          BASE_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/mnr-law-crawler-online-backend"
+          
+          echo "尝试查找后端镜像..."
+          FOUND_IMAGE=""
+          FOUND_TAG=""
+          
+          # 遍历标签列表
+          for TAG in ${TAGS}; do
+            IMAGE_NAME="${BASE_IMAGE}:${TAG}"
+            echo "检查: ${IMAGE_NAME}"
+            
+            if docker manifest inspect "${IMAGE_NAME}" >/dev/null 2>&1; then
+              FOUND_IMAGE="${IMAGE_NAME}"
+              FOUND_TAG="${TAG}"
+              echo "✅ 找到镜像: ${IMAGE_NAME}"
+              break
+            fi
+          done
+          
+          if [ -n "${FOUND_IMAGE}" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "image=${FOUND_IMAGE}" >> $GITHUB_OUTPUT
+            echo "tag=${FOUND_TAG}" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️ 未找到后端镜像，跳过扫描"
+            echo "尝试的标签: ${TAGS}"
+          fi
+
+      - name: Scan backend Docker image
+        if: steps.check-backend-image.outputs.exists == 'true'
         uses: aquasecurity/trivy-action@0.28.0
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/mnr-law-crawler-online-backend:latest
+          image-ref: ${{ steps.check-backend-image.outputs.image }}
           format: 'sarif'
           output: 'trivy-backend-results.sarif'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
 
-      - name: Upload Trivy results to GitHub Security
+      - name: Check if frontend image exists
+        id: check-frontend-image
+        continue-on-error: true
+        run: |
+          # 尝试多个可能的标签
+          TAGS='${{ steps.image-tags.outputs.tags }}'
+          BASE_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/mnr-law-crawler-online-frontend"
+          
+          echo "尝试查找前端镜像..."
+          FOUND_IMAGE=""
+          FOUND_TAG=""
+          
+          # 遍历标签列表
+          for TAG in ${TAGS}; do
+            IMAGE_NAME="${BASE_IMAGE}:${TAG}"
+            echo "检查: ${IMAGE_NAME}"
+            
+            if docker manifest inspect "${IMAGE_NAME}" >/dev/null 2>&1; then
+              FOUND_IMAGE="${IMAGE_NAME}"
+              FOUND_TAG="${TAG}"
+              echo "✅ 找到前端镜像: ${IMAGE_NAME}"
+              break
+            fi
+          done
+          
+          if [ -n "${FOUND_IMAGE}" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "image=${FOUND_IMAGE}" >> $GITHUB_OUTPUT
+            echo "tag=${FOUND_TAG}" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️ 未找到前端镜像，跳过扫描"
+          fi
+
+      - name: Scan frontend Docker image
+        if: steps.check-frontend-image.outputs.exists == 'true'
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ steps.check-frontend-image.outputs.image }}
+          format: 'sarif'
+          output: 'trivy-frontend-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+
+      - name: Upload Trivy filesystem results
         uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: 'trivy-fs-results.sarif'
 
-      - name: Check for critical vulnerabilities
+      - name: Upload Trivy backend image results
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() && steps.check-backend-image.outputs.exists == 'true'
+        with:
+          sarif_file: 'trivy-backend-results.sarif'
+
+      - name: Upload Trivy frontend image results
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() && steps.check-frontend-image.outputs.exists == 'true'
+        with:
+          sarif_file: 'trivy-frontend-results.sarif'
+
+      - name: Security scan summary
+        if: always()
         run: |
           echo "=== 安全扫描摘要 ==="
+          echo ""
+          
           if [ -f "trivy-fs-results.sarif" ]; then
-            echo "文件系统扫描完成"
+            echo "✅ 文件系统扫描完成"
+          else
+            echo "⚠️ 文件系统扫描未完成"
           fi
+          
           if [ -f "trivy-backend-results.sarif" ]; then
-            echo "Docker 镜像扫描完成"
+            echo "✅ 后端 Docker 镜像扫描完成"
+          else
+            echo "⚠️ 后端镜像扫描未完成（镜像可能不存在或使用不同标签）"
           fi
-          echo "详细结果已上传到 GitHub Security"
+          
+          if [ -f "trivy-frontend-results.sarif" ]; then
+            echo "✅ 前端 Docker 镜像扫描完成"
+          else
+            echo "⚠️ 前端镜像扫描未完成（镜像可能不存在或使用不同标签）"
+          fi
+          
+          echo ""
+          echo "详细结果已上传到 GitHub Security（如果可用）"
 
   create-release:
     name: Create Release
