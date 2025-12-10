@@ -67,6 +67,15 @@ fi
 echo "=== 准备执行 PostgreSQL entrypoint ===" >&2
 
 INIT_CLEANED_FLAG="/run/.pgdata_cleaned"
+
+# 检查 PGDATA 是否是符号链接，如果是则删除并重新创建为目录
+if [ -L "$PGDATA_DIR" ]; then
+    echo "⚠️ 检测到 $PGDATA_DIR 是符号链接，正在删除并重新创建为目录..." >&2
+    rm -f "$PGDATA_DIR" 2>/dev/null || true
+    echo "✅ 已删除符号链接" >&2
+fi
+
+# 创建数据目录（如果不存在）
 mkdir -p "$PGDATA_DIR" 2>/dev/null || true
 # 尝试修正权限（如卷为 root 拥有会导致 initdb 失败），失败也不中断
 chown -R postgres:postgres "$PGDATA_DIR" 2>/dev/null || true
@@ -76,7 +85,17 @@ if [ -d "$PGDATA_DIR" ]; then
     if [ ! -f "$PGDATA_DIR/PG_VERSION" ]; then
         if [ ! -f "$INIT_CLEANED_FLAG" ]; then
             echo "⚠️ 警告: 数据目录存在但不完整，正在清理..." >&2
-            find "$PGDATA_DIR" -mindepth 1 -maxdepth 1 ! -name "lost+found" -exec rm -rf {} + 2>/dev/null || true
+            # 使用更安全的方式清理：先检查目录内容，然后删除
+            if [ "$(ls -A "$PGDATA_DIR" 2>/dev/null | grep -v '^lost+found$' | wc -l)" -gt 0 ]; then
+                # 删除除 lost+found 外的所有内容
+                find "$PGDATA_DIR" -mindepth 1 -maxdepth 1 ! -name "lost+found" -exec rm -rf {} + 2>/dev/null || true
+                # 如果 find 失败，尝试直接删除（排除 lost+found）
+                for item in "$PGDATA_DIR"/*; do
+                    if [ -e "$item" ] && [ "$(basename "$item")" != "lost+found" ]; then
+                        rm -rf "$item" 2>/dev/null || true
+                    fi
+                done
+            fi
             touch "$INIT_CLEANED_FLAG"
             echo "✅ 数据目录已清理（标记已记录，避免重复清理）" >&2
         else
