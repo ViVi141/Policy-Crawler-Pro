@@ -44,6 +44,10 @@ RUN ls -lh /usr/local/bin/docker-entrypoint-wrapper.sh && \
 # 确保扩展目录权限正确
 RUN chmod -R 755 /usr/local/share/postgresql/extension 2>/dev/null || true
 
+# 确保数据目录存在（虽然 Docker 会自动创建，但显式创建更安全）
+RUN mkdir -p /var/lib/postgresql/data && \
+    chown -R postgres:postgres /var/lib/postgresql/data || true
+
 # 设置 entrypoint
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint-wrapper.sh"]
 
