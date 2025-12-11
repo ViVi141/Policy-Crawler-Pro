@@ -16,6 +16,29 @@ logger = logging.getLogger(__name__)
 class ConfigService:
     """系统配置管理服务"""
 
+    @staticmethod
+    def _parse_json_value(value: str) -> Any:
+        """解析JSON值，如果不是JSON则返回原值"""
+        if not value:
+            return value
+        try:
+            return json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return value
+
+    @staticmethod
+    def _serialize_value(value: Any) -> str:
+        """序列化值为JSON字符串"""
+        if isinstance(value, str):
+            # 检查是否已经是有效的JSON字符串
+            try:
+                json.loads(value)
+                return value  # 已经是JSON字符串，直接返回
+            except json.JSONDecodeError:
+                return json.dumps(value)  # 普通字符串，需要序列化
+        else:
+            return json.dumps(value)
+
     def get_config(
         self, db: Session, config_key: str, category: str = "general"
     ) -> Optional[SystemConfig]:
@@ -36,10 +59,7 @@ class ConfigService:
         """获取配置值"""
         config = self.get_config(db, config_key, category)
         if config:
-            try:
-                return json.loads(config.value)
-            except json.JSONDecodeError:
-                return config.value
+            return self._parse_json_value(config.value)
         return default
 
     def set_config(
@@ -53,15 +73,7 @@ class ConfigService:
     ) -> SystemConfig:
         """设置配置项"""
         # 将值转换为JSON字符串
-        if isinstance(config_value, str):
-            # 尝试解析为JSON，如果失败则直接存储
-            try:
-                json.loads(config_value)
-                value_str = config_value
-            except Exception:
-                value_str = json.dumps(config_value)
-        else:
-            value_str = json.dumps(config_value)
+        value_str = self._serialize_value(config_value)
 
         config = self.get_config(db, config_key, category)
         if config:
@@ -110,10 +122,7 @@ class ConfigService:
         configs = query.all()
         result = {}
         for config in configs:
-            try:
-                result[config.key] = json.loads(config.value)
-            except json.JSONDecodeError:
-                result[config.key] = config.value
+            result[config.key] = self._parse_json_value(config.value)
         return result
 
     def get_feature_flags(self, db: Session) -> Dict[str, bool]:
@@ -371,16 +380,9 @@ class ConfigService:
                 db, "smtp_password", category="email"
             )
             if smtp_password_config:
-                try:
-                    import json
-
-                    result["smtp_password"] = (
-                        json.loads(smtp_password_config.value)
-                        if smtp_password_config.value.startswith('"')
-                        else smtp_password_config.value
-                    )
-                except Exception:
-                    result["smtp_password"] = smtp_password_config.value
+                result["smtp_password"] = self._parse_json_value(
+                    smtp_password_config.value
+                )
             else:
                 result["smtp_password"] = settings.email_smtp_password
         else:
@@ -451,11 +453,18 @@ class ConfigService:
             # 确保是列表
             addresses = config["to_addresses"]
             if isinstance(addresses, str):
-                addresses = (
-                    json.loads(addresses)
-                    if addresses.startswith("[")
-                    else [addr.strip() for addr in addresses.split(",") if addr.strip()]
-                )
+                # 尝试解析为JSON，如果不是JSON则按逗号分割
+                parsed = self._parse_json_value(addresses)
+                if isinstance(parsed, list):
+                    addresses = parsed
+                elif parsed == addresses:  # 不是JSON，是普通字符串
+                    addresses = [
+                        addr.strip()
+                        for addr in addresses.split(",")
+                        if addr.strip()
+                    ]
+                else:
+                    addresses = parsed if isinstance(parsed, list) else [parsed]
             elif isinstance(addresses, list):
                 addresses = [
                     addr.strip() if isinstance(addr, str) else str(addr)
