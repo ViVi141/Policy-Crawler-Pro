@@ -254,6 +254,10 @@ jobs:
           echo "检查类型注解（MyPy）..."
           mypy app --ignore-missing-imports --no-strict-optional --show-error-codes || echo "⚠️ 类型检查有警告（非阻塞）"
           
+          # 运行自定义类型检查脚本
+          echo "运行自定义类型检查..."
+          python check_types.py app --exclude __pycache__ migrations tests --summary || echo "⚠️ 自定义类型检查发现问题（非阻塞）"
+          
           # 检查导入依赖
           echo "验证依赖导入..."
           python -c "

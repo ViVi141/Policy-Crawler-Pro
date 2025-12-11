@@ -459,9 +459,7 @@ class ConfigService:
                     addresses = parsed
                 elif parsed == addresses:  # 不是JSON，是普通字符串
                     addresses = [
-                        addr.strip()
-                        for addr in addresses.split(",")
-                        if addr.strip()
+                        addr.strip() for addr in addresses.split(",") if addr.strip()
                     ]
                 else:
                     addresses = parsed if isinstance(parsed, list) else [parsed]
