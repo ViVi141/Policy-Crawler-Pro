@@ -1001,7 +1001,7 @@ class PolicyCrawler:
 
     def _get_next_markdown_number(self) -> int:
         """获取下一个 Markdown 文件编号（线程安全）"""
-        global _markdown_counter, _file_number_lock
+        global _markdown_counter
 
         with _file_number_lock:
             # 如果计数器为0，从文件系统初始化
@@ -1022,7 +1022,7 @@ class PolicyCrawler:
 
     def _get_next_file_number(self) -> int:
         """获取下一个附件文件编号（线程安全）"""
-        global _file_counter, _file_number_lock
+        global _file_counter
 
         with _file_number_lock:
             # 如果计数器为0，从文件系统初始化
