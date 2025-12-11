@@ -140,8 +140,29 @@ jobs:
           
           # 测试API端点列表
           echo "测试其他API端点..."
+          
+          # 测试登录端点（需要POST，GET会返回405）
+          echo "测试 /api/auth/login (POST)..."
+          login_response=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST "http://127.0.0.1:3000/api/auth/login" \
+            -H "Content-Type: application/json" \
+            -d '{"username":"admin","password":"admin123"}')
+          login_code=$(echo "$login_response" | grep "HTTP_CODE" | cut -d: -f2)
+          if [ "$login_code" = "200" ]; then
+            echo "✅ /api/auth/login 登录成功"
+            # 提取token用于后续测试
+            TOKEN=$(echo "$login_response" | grep -v "HTTP_CODE" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4 || echo "")
+            if [ -n "$TOKEN" ]; then
+              export AUTH_TOKEN="$TOKEN"
+              echo "✅ Token已提取"
+            fi
+          elif [ "$login_code" = "401" ]; then
+            echo "⚠️ /api/auth/login 认证失败（可能默认用户不存在或密码错误）"
+          else
+            echo "⚠️ /api/auth/login 返回状态码: $login_code"
+          fi
+          
+          # 测试其他端点（GET请求）
           endpoints=(
-            "/api/auth/login"
             "/api/tasks/"
             "/api/policies/"
             "/api/backups/"
@@ -149,7 +170,13 @@ jobs:
           
           for endpoint in "${endpoints[@]}"; do
             echo "测试 $endpoint..."
-            endpoint_response=$(curl -s -w "\nHTTP_CODE:%{http_code}" "http://127.0.0.1:3000$endpoint")
+            # 如果有token，使用认证
+            if [ -n "$AUTH_TOKEN" ]; then
+              endpoint_response=$(curl -s -w "\nHTTP_CODE:%{http_code}" "http://127.0.0.1:3000$endpoint" \
+                -H "Authorization: Bearer $AUTH_TOKEN")
+            else
+              endpoint_response=$(curl -s -w "\nHTTP_CODE:%{http_code}" "http://127.0.0.1:3000$endpoint")
+            fi
             endpoint_code=$(echo "$endpoint_response" | grep "HTTP_CODE" | cut -d: -f2)
             # 401/403是预期的（需要认证），404可能表示路由不存在，500表示服务器错误
             if [ "$endpoint_code" -ge 500 ]; then
@@ -168,13 +195,23 @@ jobs:
           
           # 测试Nginx代理重定向处理
           echo "测试Nginx代理重定向处理..."
-          # 测试不带尾随斜杠的路径（应该被重定向）
-          redirect_response=$(curl -s -w "\nHTTP_CODE:%{http_code}" -L http://127.0.0.1:3000/api/tasks)
-          redirect_code=$(echo "$redirect_response" | grep "HTTP_CODE" | cut -d: -f2)
-          if [ "$redirect_code" = "200" ] || [ "$redirect_code" = "401" ] || [ "$redirect_code" = "307" ]; then
-            echo "✅ 重定向处理正常"
+          # 测试不带尾随斜杠的路径（应该被重定向到带斜杠的版本）
+          # 使用 -L 跟随重定向，但先检查初始响应
+          redirect_response=$(curl -s -w "\nHTTP_CODE:%{http_code}\nREDIRECT_URL:%{redirect_url}" -L --max-redirs 3 http://127.0.0.1:3000/api/tasks 2>&1)
+          redirect_code=$(echo "$redirect_response" | grep "^HTTP_CODE" | cut -d: -f2)
+          redirect_url=$(echo "$redirect_response" | grep "^REDIRECT_URL" | cut -d: -f2-)
+          
+          # 检查响应码（200表示成功，401表示需要认证，307/308表示重定向）
+          if [ "$redirect_code" = "200" ] || [ "$redirect_code" = "401" ] || [ "$redirect_code" = "307" ] || [ "$redirect_code" = "308" ]; then
+            echo "✅ 重定向处理正常（状态码: $redirect_code）"
+            if [ -n "$redirect_url" ]; then
+              echo "   重定向到: $redirect_url"
+            fi
+          elif [ "$redirect_code" = "404" ]; then
+            echo "⚠️ 重定向处理返回404（端点可能不存在）"
           else
             echo "⚠️ 重定向处理返回状态码: $redirect_code"
+            # 不退出，因为这不是关键测试
           fi
           
           # 测试容器间网络通信
