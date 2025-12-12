@@ -829,7 +829,9 @@ class PolicyCrawler:
         except Exception as e:
             logger.error(f"JSON保存失败: {e}", exc_info=True)
 
-    def _generate_rag_markdown(self, policy: Policy, file_number: int):
+    def _generate_rag_markdown(
+        self, policy: Policy, file_number: int, callback: Optional[Callable] = None
+    ):
         """生成RAG格式的Markdown文件"""
         try:
             md_lines = []
