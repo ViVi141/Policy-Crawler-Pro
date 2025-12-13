@@ -32,10 +32,11 @@ def create_scheduled_task(
     current_user: User = Depends(get_current_user),
 ):
     """创建定时任务"""
-    if not settings.scheduler_enabled:
+    scheduler_service = get_scheduler_service()
+    if not scheduler_service.is_enabled():
         raise HTTPException(
             status_code=400,
-            detail="定时任务功能未启用，请在配置中启用SCHEDULER_ENABLED",
+            detail="定时任务功能未启用，请在系统配置中启用定时任务功能",
         )
 
     try:
@@ -111,7 +112,8 @@ def enable_scheduled_task(
     current_user: User = Depends(get_current_user),
 ):
     """启用定时任务"""
-    if not settings.scheduler_enabled:
+    scheduler_service = get_scheduler_service()
+    if not scheduler_service.is_enabled():
         raise HTTPException(status_code=400, detail="定时任务功能未启用")
 
     try:

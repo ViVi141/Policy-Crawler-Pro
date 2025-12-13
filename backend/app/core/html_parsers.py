@@ -1,6 +1,7 @@
 """
 HTML解析器模块
 为不同的网站提供专门的解析器
+支持UTF-8编码和特殊字符处理
 """
 
 from bs4 import BeautifulSoup
@@ -8,6 +9,8 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional, Callable
 from urllib.parse import urljoin
 import logging
+import re
+import html
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +41,217 @@ class BaseHTMLParser:
             except Exception:
                 continue
         return None
+
+    def _clean_text(self, text: str) -> str:
+        """清洗文本，处理特殊字符和UTF-8编码问题
+
+        Args:
+            text: 原始文本
+
+        Returns:
+            清洗后的文本
+        """
+        if not text:
+            return ""
+
+        # 确保文本是UTF-8编码
+        if isinstance(text, bytes):
+            text = text.decode("utf-8", errors="replace")
+
+        # HTML实体解码（处理&nbsp等）
+        text = html.unescape(text)
+
+        # 处理常见的特殊字符和不可见字符
+        replacements = {
+            "\xa0": " ",  # 不间断空格
+            "\u2002": " ",  # 间隙
+            "\u2003": " ",  # 制表符
+            "\u2004": " ",  # 三分之一空白
+            "\u2005": " ",  # 四分之一空白
+            "\u2006": " ",  # 六分之一空白
+            "\u2007": " ",  # 图形变体空白
+            "\u2008": " ",  # 标点空白
+            "\u2009": " ",  # 薄空格
+            "\u200a": " ",  # 头发空格
+            "\u200b": "\u00ad",  # 零宽度空格 -> 软连字符
+            "\u200c": "",  # 零宽度非连接符
+            "\u200d": "",  # 零宽度连接符
+            "\u200e": "",  # 左到右标记
+            "\u200f": "",  # 右到左标记
+            "\u2028": "\n",  # 行分隔符
+            "\u2029": "\n",  # 段落分隔符
+            "\u202a": "",  # 左到右嵌入
+            "\u202b": "",  # 右到左嵌入
+            "\u202c": "",  # 弹出方向格式
+            "\u202d": "",  # 左到右覆盖
+            "\u202e": "",  # 右到左覆盖
+            "\u202f": " ",  # 窄不间断空格
+            "\u205f": " ",  # 中等数学空格
+            "\u2060": "",  # 字连接符
+            "\u2061": "",  # 函数应用
+            "\u2062": "",  # 不可见乘号
+            "\u2063": "",  # 不可见分隔符
+            "\u2064": "",  # 不可见加号
+            "\u2066": "",  # 左到右隔离
+            "\u2067": "",  # 右到左隔离
+            "\u2068": "",  # 第一个强隔离
+            "\u2069": "",  # 弹出方向隔离
+            "\u206a": "",  # 激活对称交换
+            "\u206b": "",  # 非激活对称交换
+            "\u206c": "",  # 非激活对称交换
+            "\u206d": "",  # 激活对称交换
+            "\u206e": "",  # 非激活对称交换
+            "\u206f": "",  # 名义数字形状
+            "\ufeff": "",  # 字节顺序标记
+            "\u00ad": "-",  # 软连字符 -> 普通连字符
+            "\u2010": "-",  # 连字符
+            "\u2011": "-",  # 非断开连字符
+            "\u2012": "-",  # 图形连字符
+            "\u2013": "-",  # 短破折号
+            "\u2014": "-",  # 长破折号
+            "\u2015": "-",  # 水平条
+            "\u2212": "-",  # 减号
+            "\u2044": "/",  # 分数斜杠
+            "\u2215": "/",  # 除号
+            "\u2018": "'",  # 左单引号
+            "\u2019": "'",  # 右单引号
+            "\u201a": "'",  # 低位单引号
+            "\u201b": "'",  # 单高位反引号
+            "\u201c": '"',  # 左双引号
+            "\u201d": '"',  # 右双引号
+            "\u201e": '"',  # 低位双引号
+            "\u201f": '"',  # 双高位反引号
+            "\u2039": "<",  # 单左尖括号
+            "\u203a": ">",  # 单右尖括号
+            "\u00ab": "<<",  # 左双尖括号
+            "\u00bb": ">>",  # 右双尖括号
+            "\u2026": "...",  # 水平省略号
+            "\u2027": ".",  # 连字点
+            "\u00b7": "·",  # 中间点
+            "\u2219": "·",  # 项目符号
+            "\u2022": "•",  # 项目符号
+            "\u2023": "‣",  # 三角项目符号
+            "\u2043": "⁓",  # 连接符号
+            "\u00d7": "×",  # 乘号
+            "\u00f7": "÷",  # 除号
+            "\u221a": "√",  # 平方根
+            "\u221b": "∛",  # 立方根
+            "\u221c": "∜",  # 第四根
+            "\u2202": "∂",  # 偏导数
+            "\u2206": "Δ",  # 增量
+            "\u220f": "∏",  # 乘积
+            "\u2211": "∑",  # 求和
+            "\u221e": "∞",  # 无穷大
+            "\u2220": "∠",  # 角
+            "\u2229": "∩",  # 交集
+            "\u222a": "∪",  # 并集
+            "\u2260": "≠",  # 不等于
+            "\u2264": "≤",  # 小于等于
+            "\u2265": "≥",  # 大于等于
+            "\u00b2": "²",  # 上标2
+            "\u00b3": "³",  # 上标3
+            "\u00b9": "¹",  # 上标1
+            "\u00bc": "¼",  # 四分之一
+            "\u00bd": "½",  # 二分之一
+            "\u00be": "¾",  # 四分之三
+            "\u2153": "⅓",  # 三分之一
+            "\u2154": "⅔",  # 三分之二
+            "\u2155": "⅕",  # 五分之一
+            "\u2156": "⅖",  # 五分之二
+            "\u2157": "⅗",  # 五分之三
+            "\u2158": "⅘",  # 五分之四
+            "\u2159": "⅙",  # 六分之一
+            "\u215a": "⅚",  # 六分之五
+            "\u215b": "⅛",  # 八分之一
+            "\u215c": "⅜",  # 八分之三
+            "\u215d": "⅝",  # 八分之五
+            "\u215e": "⅞",  # 八分之七
+            "\u00a9": "(c)",  # 版权符号
+            "\u00ae": "(r)",  # 注册商标
+            "\u2122": "(tm)",  # 商标
+            "\u00a3": "£",  # 英镑
+            "\u20ac": "€",  # 欧元
+            "\u00a5": "¥",  # 日元
+            "\u00a2": "¢",  # 美分
+            "\u00b0": "°",  # 度数
+            "\u00b1": "±",  # 正负号
+            "\u00d8": "Ø",  # 斜线O
+            "\u00f8": "ø",  # 斜线o
+            "\u00c6": "Æ",  # AE连字（大写）
+            "\u00e6": "æ",  # ae连字（小写）
+            "\u00c0": "À",  # A重音
+            "\u00c1": "Á",  # A重音
+            "\u00c2": "Â",  # A重音
+            "\u00c3": "Ã",  # A重音
+            "\u00c4": "Ä",  # A重音
+            "\u00c5": "Å",  # A圆圈
+            "\u00c7": "Ç",  # C下加符
+            "\u00c8": "È",  # E重音
+            "\u00c9": "É",  # E重音
+            "\u00ca": "Ê",  # E重音
+            "\u00cb": "Ë",  # E重音
+            "\u00cc": "Ì",  # I重音
+            "\u00cd": "Í",  # I重音
+            "\u00ce": "Î",  # I重音
+            "\u00cf": "Ï",  # I重音
+            "\u00d0": "Ð",  # D上划线
+            "\u00d1": "Ñ",  # N波浪
+            "\u00d2": "Ò",  # O重音
+            "\u00d3": "Ó",  # O重音
+            "\u00d4": "Ô",  # O重音
+            "\u00d5": "Õ",  # O重音
+            "\u00d6": "Ö",  # O重音
+            "\u00d9": "Ù",  # U重音
+            "\u00da": "Ú",  # U重音
+            "\u00db": "Û",  # U重音
+            "\u00dc": "Ü",  # U重音
+            "\u00dd": "Ý",  # Y重音
+            "\u00de": "Þ",  # 冰岛语TH
+            "\u00df": "ß",  # 德语双s（德语）
+            "\u00e0": "à",  # a重音
+            "\u00e1": "á",  # a重音
+            "\u00e2": "â",  # a重音
+            "\u00e3": "ã",  # a重音
+            "\u00e4": "ä",  # a重音
+            "\u00e5": "å",  # a圆圈
+            "\u00e7": "ç",  # c下加符
+            "\u00e8": "è",  # e重音
+            "\u00e9": "é",  # e重音
+            "\u00ea": "ê",  # e重音
+            "\u00eb": "ë",  # e重音
+            "\u00ec": "ì",  # i重音
+            "\u00ed": "í",  # i重音
+            "\u00ee": "î",  # i重音
+            "\u00ef": "ï",  # i重音
+            "\u00f0": "ð",  # d上划线
+            "\u00f1": "ñ",  # n波浪
+            "\u00f2": "ò",  # o重音
+            "\u00f3": "ó",  # o重音
+            "\u00f4": "ô",  # o重音
+            "\u00f5": "õ",  # o重音
+            "\u00f6": "ö",  # o重音
+            "\u00f9": "ù",  # u重音
+            "\u00fa": "ú",  # u重音
+            "\u00fb": "û",  # u重音
+            "\u00fc": "ü",  # u重音
+            "\u00fd": "ý",  # y重音
+            "\u00fe": "þ",  # 冰岛语th
+            "\u00ff": "ÿ",  # y重音
+        }
+
+        # 应用字符替换
+        for old, new in replacements.items():
+            text = text.replace(old, new)
+
+        # 处理连续的空白字符
+        text = re.sub(r"[ \t]+", " ", text)  # 将多个空格制表符合并为单个空格
+        text = re.sub(r"\n\s*\n\s*\n+", "\n\n", text)  # 将多个连续换行合并为双换行
+
+        # 处理特殊的控制字符
+        # 移除控制字符（除了换行和制表符）
+        text = re.sub(r"[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f-\x9f]", "", text)
+
+        return text.strip()
 
 
 class GIMNRParser(BaseHTMLParser):
@@ -78,10 +292,10 @@ class GIMNRParser(BaseHTMLParser):
                         continue
 
                     # 检查是否是主政策行
-                    first_cell = cells[0].get_text(strip=True)
+                    first_cell = self._clean_text(cells[0].get_text(strip=True))
                     if not first_cell or first_cell in [
-                        "标    题",
-                        "索    引",
+                        "标题",
+                        "索引",
                         "发文字号",
                         "生成日期",
                         "实施日期",
@@ -106,13 +320,10 @@ class GIMNRParser(BaseHTMLParser):
 
                     # 遍历所有列，查找标签-值对
                     for i in range(len(cells) - 1):
-                        label = (
-                            cells[i]
-                            .get_text(strip=True)
-                            .replace("\xa0", "")
-                            .replace(" ", "")
+                        label = self._clean_text(cells[i].get_text(strip=True)).replace(
+                            " ", ""
                         )
-                        value = (
+                        value = self._clean_text(
                             cells[i + 1].get_text(strip=True)
                             if i + 1 < len(cells)
                             else ""
@@ -130,31 +341,37 @@ class GIMNRParser(BaseHTMLParser):
                                 link = cells[i].find("a", href=True)
 
                             if link:
-                                title = link.get_text(strip=True)
+                                title = self._clean_text(link.get_text(strip=True))
                                 detail_url = link.get("href", "")
                                 if not title and value:
-                                    title = value
+                                    title = self._clean_text(value)
                             elif value:
-                                title = value
+                                title = self._clean_text(value)
 
                         # 查找发文字号
                         elif "发文字号" in label or ("文号" in label and "发" in label):
                             if value:
-                                doc_number = value
+                                doc_number = self._clean_text(value)
 
                         # 查找发布日期（优先使用'生成日期'，如果没有则使用'发布日期'）
                         elif "生成日期" in label:
                             if value and (
-                                any(keyword in value for keyword in ["年", "月", "日"])
-                                or len(value) >= 8
+                                any(
+                                    keyword in self._clean_text(value)
+                                    for keyword in ["年", "月", "日"]
+                                )
+                                or len(self._clean_text(value)) >= 8
                             ):
-                                pub_date = value
+                                pub_date = self._clean_text(value)
                         elif "发布日期" in label and not pub_date:
                             if value and (
-                                any(keyword in value for keyword in ["年", "月", "日"])
-                                or len(value) >= 8
+                                any(
+                                    keyword in self._clean_text(value)
+                                    for keyword in ["年", "月", "日"]
+                                )
+                                or len(self._clean_text(value)) >= 8
                             ):
-                                pub_date = value
+                                pub_date = self._clean_text(value)
 
                     # 如果没找到标题，尝试从链接中获取
                     if not title:
@@ -163,7 +380,7 @@ class GIMNRParser(BaseHTMLParser):
                             if link:
                                 href = link.get("href", "")
                                 if href and not href.startswith("javascript"):
-                                    title = link.get_text(strip=True)
+                                    title = self._clean_text(link.get_text(strip=True))
                                     detail_url = href
                                     break
 
@@ -185,9 +402,9 @@ class GIMNRParser(BaseHTMLParser):
 
                     policy = {
                         "level": self.level,
-                        "title": title,
+                        "title": self._clean_text(title),
                         "pub_date": pub_date_formatted,
-                        "doc_number": doc_number,
+                        "doc_number": self._clean_text(doc_number),
                         "source": detail_url,
                         "link": detail_url,
                         "url": detail_url,
@@ -294,9 +511,9 @@ class FMNRParser(BaseHTMLParser):
                         if len(cells) < 2:
                             continue
 
-                        label_raw = cells[0].get_text()
-                        label = label_raw.replace("\xa0", "").replace(" ", "").strip()
-                        value = cells[1].get_text(strip=True)
+                        label_raw = self._clean_text(cells[0].get_text())
+                        label = label_raw.replace(" ", "").strip()
+                        value = self._clean_text(cells[1].get_text(strip=True))
 
                         # 根据标签提取信息
                         if (
@@ -311,7 +528,7 @@ class FMNRParser(BaseHTMLParser):
                             if link:
                                 detail_url = link.get("href", "")
                                 if not title:
-                                    title = link.get_text(strip=True)
+                                    title = self._clean_text(link.get_text(strip=True))
                         elif (
                             "发文字号" in label
                             or "文号" in label
@@ -340,7 +557,7 @@ class FMNRParser(BaseHTMLParser):
                     if not title:
                         links = table.find_all("a", href=True)
                         for link in links:
-                            link_text = link.get_text(strip=True)
+                            link_text = self._clean_text(link.get_text(strip=True))
                             link_href = link.get("href", "")
                             if link_href and not link_href.startswith("javascript"):
                                 if len(link_text) > 5:
@@ -366,9 +583,9 @@ class FMNRParser(BaseHTMLParser):
 
                     policy = {
                         "level": self.level,
-                        "title": title,
+                        "title": self._clean_text(title),
                         "pub_date": pub_date_formatted,
-                        "doc_number": doc_number,
+                        "doc_number": self._clean_text(doc_number),
                         "source": detail_url,
                         "link": detail_url,
                         "url": detail_url,
@@ -377,7 +594,7 @@ class FMNRParser(BaseHTMLParser):
                             "%Y-%m-%d %H:%M:%S"
                         ),
                         "category": category_name,
-                        "validity": validity,
+                        "validity": self._clean_text(validity),
                         "effective_date": "",
                         "publisher": "",  # 发布机构，从详情页提取
                     }

@@ -235,22 +235,130 @@
             <el-empty v-else description="暂无执行结果" />
           </el-tab-pane>
           
-          <el-tab-pane v-if="currentTask.status === 'running' || currentTask.progress_message" label="实时进度" name="progress">
-            <div class="progress-log-container">
-              <div class="progress-log-header">
-                <span>任务执行日志</span>
-                <div>
-                  <el-tag v-if="currentTask.status === 'running'" type="success" size="small">运行中</el-tag>
-                  <el-tag v-else-if="currentTask.status === 'completed'" type="success" size="small">已完成</el-tag>
-                  <el-tag v-else-if="currentTask.status === 'failed'" type="danger" size="small">失败</el-tag>
-                  <el-tag v-else-if="currentTask.status === 'paused'" type="warning" size="small">已暂停</el-tag>
-                  <el-tag v-else-if="currentTask.status === 'cancelled'" type="info" size="small">已取消</el-tag>
+          <el-tab-pane v-if="currentTask.status === 'running' || currentTask.progress_message || currentTask.progress_data || currentTask.policy_count" label="实时进度" name="progress">
+            <div class="progress-container">
+              <!-- 总体进度 -->
+              <div class="overall-progress">
+                <el-card class="progress-card" shadow="never">
+                  <template #header>
+                    <div class="card-header">
+                      <span>总体进度</span>
+                      <el-tag v-if="currentTask.status === 'running'" type="success" size="small">运行中</el-tag>
+                      <el-tag v-else-if="currentTask.status === 'completed'" type="success" size="small">已完成</el-tag>
+                      <el-tag v-else-if="currentTask.status === 'failed'" type="danger" size="small">失败</el-tag>
+                      <el-tag v-else-if="currentTask.status === 'paused'" type="warning" size="small">已暂停</el-tag>
+                      <el-tag v-else-if="currentTask.status === 'cancelled'" type="info" size="small">已取消</el-tag>
+                    </div>
+                  </template>
+                  <div class="progress-stats">
+                    <div class="stat-item">
+                      <span class="stat-label">总政策数</span>
+                      <span class="stat-value">
+                        {{ currentTask.progress_data?.total_count || currentTask.policy_count || '未知' }}
+                      </span>
+                    </div>
+                    <div class="stat-item">
+                      <span class="stat-label">已完成</span>
+                      <span class="stat-value text-success">
+                        {{ currentTask.progress_data?.completed_count || currentTask.success_count || 0 }}
+                      </span>
+                    </div>
+                    <div class="stat-item">
+                      <span class="stat-label">失败</span>
+                      <span class="stat-value text-danger">
+                        {{ currentTask.progress_data?.failed_count || currentTask.failed_count || 0 }}
+                      </span>
+                    </div>
+                    <div class="stat-item">
+                      <span class="stat-label">成功率</span>
+                      <span class="stat-value">
+                        {{ calculateSuccessRate() }}%
+                      </span>
+                    </div>
+                  </div>
+                  <el-progress
+                    :percentage="calculateProgressPercentage()"
+                    :status="currentTask.status === 'failed' ? 'exception' : undefined"
+                    :stroke-width="12"
+                    class="overall-progress-bar"
+                  />
+                </el-card>
+              </div>
+
+              <!-- 阶段进度 -->
+              <div v-if="currentTask.progress_data?.stages" class="stage-progress">
+                <el-card v-for="(stage, stageName) in currentTask.progress_data.stages"
+                         :key="stageName"
+                         class="progress-card stage-card"
+                         shadow="never">
+                  <template #header>
+                    <div class="card-header">
+                      <span>{{ stage.description || stage.name }}</span>
+                      <el-tag :type="getStageTagType(stage.status)" size="small">
+                        {{ getStageStatusText(stage.status) }}
+                      </el-tag>
+                    </div>
+                  </template>
+                  <div class="stage-stats">
+                    <div class="stat-item">
+                      <span class="stat-label">总数</span>
+                      <span class="stat-value">{{ stage.total_count }}</span>
+                    </div>
+                    <div class="stat-item">
+                      <span class="stat-label">完成</span>
+                      <span class="stat-value text-success">{{ stage.completed_count }}</span>
+                    </div>
+                    <div class="stat-item">
+                      <span class="stat-label">失败</span>
+                      <span class="stat-value text-danger">{{ stage.failed_count }}</span>
+                    </div>
+                  </div>
+                  <el-progress
+                    :percentage="stage.progress_percentage || 0"
+                    :status="stage.status === 'failed' ? 'exception' : undefined"
+                    :stroke-width="8"
+                    class="stage-progress-bar"
+                  />
+                  <div v-if="stage.message" class="stage-message">
+                    {{ stage.message }}
+                  </div>
+                </el-card>
+              </div>
+
+              <!-- 当前处理信息 -->
+              <div v-if="currentTask.progress_data?.current_policy_title" class="current-processing">
+                <el-card class="progress-card" shadow="never">
+                  <template #header>
+                    <span>当前处理</span>
+                  </template>
+                  <div class="current-item">
+                    <el-icon class="processing-icon"><Loading /></el-icon>
+                    <span class="processing-text">{{ currentTask.progress_data.current_policy_title }}</span>
+                  </div>
+                </el-card>
+              </div>
+
+              <!-- 传统日志显示（向下兼容） -->
+              <div v-if="currentTask.progress_message" class="progress-log-container">
+                <div class="progress-log-header">
+                  <div class="header-left">
+                    <span>任务执行日志</span>
+                    <el-tag v-if="currentTask.status === 'running'" type="success" size="small">实时更新中</el-tag>
+                    <el-tag v-else-if="currentTask.status === 'completed'" type="success" size="small">已完成</el-tag>
+                    <el-tag v-else-if="currentTask.status === 'failed'" type="danger" size="small">失败</el-tag>
+                  </div>
+                  <div class="header-right">
+                    <el-checkbox v-model="autoScrollEnabled" size="small">
+                      自动滚动
+                    </el-checkbox>
+                  </div>
+                </div>
+                <div class="progress-log-content" ref="progressLogContentRef">
+                  <pre class="progress-log">{{ currentTask.progress_message }}</pre>
                 </div>
               </div>
-              <div class="progress-log-content" ref="progressLogContentRef">
-                <pre v-if="currentTask.progress_message" class="progress-log">{{ currentTask.progress_message }}</pre>
-                <el-empty v-else description="暂无进度信息" />
-              </div>
+
+              <el-empty v-else description="暂无进度信息" />
             </div>
           </el-tab-pane>
           
@@ -309,6 +417,8 @@ const currentTask = ref<Task | null>(null)
 const activeTab = ref('info')
 const progressLogContentRef = ref<HTMLElement | null>(null)
 let taskDetailRefreshInterval: ReturnType<typeof setInterval> | null = null
+let progressEventSource: EventSource | null = null
+const autoScrollEnabled = ref(true) // 默认启用自动滚动
 
 const filterForm = reactive({
   task_type: '',
@@ -412,15 +522,187 @@ const handleTaskSubmit = async (formData: TaskFormData) => {
   }
 }
 
+// SSE 进度监听
+const startProgressStreaming = (taskId: number) => {
+  // 如果已有连接，先断开
+  if (progressEventSource) {
+    progressEventSource.close()
+  }
+
+  // 建立SSE连接
+  const baseURL = import.meta.env.VITE_API_BASE_URL || ''
+  const token = localStorage.getItem('token')
+  const tokenParam = token ? `?token=${encodeURIComponent(token)}` : ''
+  const url = `${baseURL}/api/tasks/${taskId}/progress/stream${tokenParam}`
+
+  progressEventSource = new EventSource(url)
+
+  progressEventSource.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data)
+      console.log('SSE收到消息:', data.type, data)
+
+      if (data.type === 'connection_established') {
+        console.log('SSE连接已建立:', data.message)
+        ElMessage.success('实时进度连接已建立')
+        return
+      }
+
+      if (data.type === 'heartbeat') {
+        console.log('SSE心跳:', data.message)
+        return
+      }
+
+      if (data.type === 'error') {
+        console.error('SSE错误:', data.message)
+        ElMessage.error(`连接错误: ${data.message}`)
+        return
+      }
+
+      if (data.type === 'task_update' || data.type === 'progress_update') {
+        // 更新任务状态
+        if (currentTask.value && currentTask.value.id === taskId) {
+          console.log('更新任务状态:', {
+            status: data.status,
+            hasProgressData: !!data.progress_data,
+            progressDataKeys: data.progress_data ? Object.keys(data.progress_data) : []
+          })
+
+          if (data.status) {
+            currentTask.value.status = data.status
+          }
+          if (data.progress_message !== undefined) {
+            currentTask.value.progress_message = data.progress_message
+          }
+          if (data.start_time) {
+            currentTask.value.start_time = data.start_time
+          }
+
+          // 更新详细进度数据
+          if (data.progress_data) {
+            currentTask.value.progress_data = data.progress_data
+            console.log('详细进度数据已更新')
+
+            // 同步更新任务的基本统计信息
+            if (data.progress_data.total_count) {
+              currentTask.value.policy_count = data.progress_data.total_count
+            }
+            if (data.progress_data.completed_count !== undefined) {
+              currentTask.value.success_count = data.progress_data.completed_count
+            }
+            if (data.progress_data.failed_count !== undefined) {
+              currentTask.value.failed_count = data.progress_data.failed_count
+            }
+          }
+
+          // 如果正在查看进度标签页，滚动到底部
+          if (activeTab.value === 'progress') {
+            nextTick(() => {
+              scrollToBottom()
+            })
+          }
+
+          // 触发任务列表刷新（只更新当前任务）
+          refreshCurrentTask(taskId)
+        }
+      }
+
+      // 触发任务列表刷新（只更新当前任务）
+      if (data.type !== 'heartbeat') {
+        fetchTasks()
+      }
+    } catch (error) {
+      console.error('SSE消息解析失败:', error)
+    }
+  }
+
+  progressEventSource.onerror = (error) => {
+    console.error('SSE连接错误:', error)
+    // 连接出错时，回退到轮询模式
+    if (currentTask.value?.status === 'running') {
+      startTaskDetailRefresh(taskId)
+    }
+  }
+
+  progressEventSource.onopen = () => {
+    console.log('SSE连接已建立')
+    ElMessage.success('SSE连接已建立，开始接收实时进度')
+  }
+}
+
+// 计算成功率
+const calculateSuccessRate = () => {
+  if (!currentTask.value) return '0.0'
+
+  let completed = 0
+  let failed = 0
+
+  if (currentTask.value.progress_data) {
+    completed = currentTask.value.progress_data.completed_count || 0
+    failed = currentTask.value.progress_data.failed_count || 0
+  } else {
+    completed = currentTask.value.success_count || 0
+    failed = currentTask.value.failed_count || 0
+  }
+
+  const total = completed + failed
+  if (total === 0) return '0.0'
+
+  return ((completed / total) * 100).toFixed(1)
+}
+
+// 计算进度百分比
+const calculateProgressPercentage = () => {
+  if (!currentTask.value) return 0
+
+  if (currentTask.value.progress_data) {
+    return currentTask.value.progress_data.progress_percentage || 0
+  }
+
+  // 基于任务统计计算进度
+  const total = currentTask.value.policy_count || 0
+  const completed = currentTask.value.success_count || 0
+  const failed = currentTask.value.failed_count || 0
+  const processed = completed + failed
+
+  if (total === 0) return 0
+  return Math.min((processed / total) * 100, 100)
+}
+
+// 刷新当前任务数据
+const refreshCurrentTask = async (taskId: number) => {
+  try {
+    const updated = await tasksApi.getTaskById(taskId)
+    if (currentTask.value && currentTask.value.id === taskId) {
+      Object.assign(currentTask.value, updated)
+    }
+  } catch (error) {
+    console.error('刷新任务数据失败:', error)
+  }
+}
+
+const stopProgressStreaming = () => {
+  if (progressEventSource) {
+    progressEventSource.close()
+    progressEventSource = null
+    console.log('SSE连接已断开')
+  }
+}
+
 const handleViewDetail = async (task: Task) => {
   try {
     currentTask.value = await tasksApi.getTaskById(task.id)
     showDetailDialog.value = true
-    
-    // 如果任务正在运行，自动切换到进度标签页并开始刷新
+
+    // 如果任务正在运行，自动切换到进度标签页
     if (task.status === 'running') {
       activeTab.value = 'progress'
-      startTaskDetailRefresh(task.id)
+      // 优先使用SSE，如果不支持则回退到轮询
+      if (typeof EventSource !== 'undefined') {
+        startProgressStreaming(task.id)
+      } else {
+        startTaskDetailRefresh(task.id)
+      }
     } else {
       activeTab.value = 'info'
     }
@@ -434,20 +716,31 @@ const handleTabChange = (tabName: string) => {
   // 切换到进度标签页时，如果是运行中的任务，确保开始刷新
   if (tabName === 'progress' && currentTask.value?.status === 'running') {
     if (currentTask.value) {
-      startTaskDetailRefresh(currentTask.value.id)
+      // 优先使用SSE，如果不支持则回退到轮询
+      if (typeof EventSource !== 'undefined') {
+        startProgressStreaming(currentTask.value.id)
+      } else {
+        startTaskDetailRefresh(currentTask.value.id)
+      }
       // 滚动到底部显示最新进度
       scrollToBottom()
     }
+  } else if (tabName !== 'progress') {
+    // 离开进度标签页时停止SSE连接
+    stopProgressStreaming()
+    stopTaskDetailRefresh()
   }
 }
 
 const scrollToBottom = () => {
-  // 自动滚动进度日志到底部
-  nextTick(() => {
-    if (progressLogContentRef.value) {
-      progressLogContentRef.value.scrollTop = progressLogContentRef.value.scrollHeight
-    }
-  })
+  // 根据设置自动滚动进度日志到底部
+  if (autoScrollEnabled.value) {
+    nextTick(() => {
+      if (progressLogContentRef.value) {
+        progressLogContentRef.value.scrollTop = progressLogContentRef.value.scrollHeight
+      }
+    })
+  }
 }
 
 const startTaskDetailRefresh = (taskId: number) => {
@@ -481,11 +774,34 @@ watch(() => currentTask.value?.progress_message, () => {
   }
 })
 
+// 阶段状态相关辅助函数
+const getStageTagType = (status: string) => {
+  switch (status) {
+    case 'running': return 'success'
+    case 'completed': return 'success'
+    case 'failed': return 'danger'
+    case 'pending': return 'info'
+    default: return 'info'
+  }
+}
+
+const getStageStatusText = (status: string) => {
+  switch (status) {
+    case 'running': return '运行中'
+    case 'completed': return '已完成'
+    case 'failed': return '失败'
+    case 'pending': return '等待中'
+    default: return status
+  }
+}
+
 const stopTaskDetailRefresh = () => {
   if (taskDetailRefreshInterval) {
     clearInterval(taskDetailRefreshInterval)
     taskDetailRefreshInterval = null
   }
+  // 同时停止SSE连接
+  stopProgressStreaming()
 }
 
 const handleStartTask = async (task: Task) => {
@@ -839,6 +1155,156 @@ onUnmounted(() => {
     max-height: 70vh;
     overflow-y: auto;
   }
+}
+
+// 进度相关样式
+.progress-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.progress-card {
+  .el-card__header {
+    padding: 12px 20px;
+    border-bottom: 1px solid #ebeef5;
+  }
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.overall-progress {
+  .progress-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .stat-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  .stat-label {
+    font-size: 12px;
+    color: #909399;
+    margin-bottom: 4px;
+  }
+
+  .stat-value {
+    font-size: 18px;
+    font-weight: 600;
+    color: #303133;
+  }
+
+  .overall-progress-bar {
+    margin-top: 8px;
+  }
+}
+
+.stage-progress {
+  .stage-card {
+    margin-bottom: 12px;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+
+  .stage-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .stage-progress-bar {
+    margin-bottom: 8px;
+  }
+
+  .stage-message {
+    font-size: 12px;
+    color: #909399;
+    padding: 4px 0;
+  }
+}
+
+.current-processing {
+  .current-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .processing-icon {
+    color: #67c23a;
+    animation: spin 2s linear infinite;
+  }
+
+  .processing-text {
+    font-weight: 500;
+    color: #303133;
+  }
+}
+
+  .progress-log-container {
+    .progress-log-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      font-weight: 500;
+
+      .header-left {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .header-right {
+        display: flex;
+        align-items: center;
+      }
+    }
+
+  .progress-log-content {
+    max-height: 400px;
+    overflow-y: auto;
+    background-color: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 4px;
+    padding: 12px;
+  }
+
+  .progress-log {
+    margin: 0;
+    font-family: 'Monaco', 'Consolas', monospace;
+    font-size: 12px;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.text-success {
+  color: #67c23a;
+}
+
+.text-danger {
+  color: #f56c6c;
 }
 
 // 响应式设计

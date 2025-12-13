@@ -125,32 +125,126 @@ class PolicyDetail:
 
 
 @dataclass
-class CrawlProgress:
-    """爬取进度"""
+class CrawlStage:
+    """爬取阶段信息"""
 
-    total_count: int = 0
-    completed_count: int = 0
-    failed_count: int = 0
-    current_policy_id: str = ""
-    current_policy_title: str = ""
+    name: str  # 阶段名称，如 "search_policies", "crawl_details"
+    description: str  # 阶段描述，如 "搜索政策列表", "爬取政策详情"
+    total_count: int = 0  # 该阶段总项目数
+    completed_count: int = 0  # 该阶段已完成项目数
+    failed_count: int = 0  # 该阶段失败项目数
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
-    completed_policies: List[str] = field(default_factory=list)
-    failed_policies: List[Dict[str, str]] = field(default_factory=list)
-
-    @property
-    def success_rate(self) -> float:
-        """成功率"""
-        if self.total_count == 0:
-            return 0.0
-        return (self.completed_count / self.total_count) * 100
+    status: str = "pending"  # pending, running, completed, failed
+    message: str = ""  # 当前阶段状态消息
 
     @property
     def progress_percentage(self) -> float:
-        """进度百分比"""
+        """阶段进度百分比"""
         if self.total_count == 0:
             return 0.0
         return ((self.completed_count + self.failed_count) / self.total_count) * 100
+
+    @property
+    def success_rate(self) -> float:
+        """阶段成功率"""
+        if self.completed_count + self.failed_count == 0:
+            return 0.0
+        return (self.completed_count / (self.completed_count + self.failed_count)) * 100
+
+
+@dataclass
+class CrawlProgress:
+    """爬取进度"""
+
+    # 总体进度
+    total_count: int = 0  # 预估总政策数
+    completed_count: int = 0  # 已完成政策数
+    failed_count: int = 0  # 失败政策数
+
+    # 当前处理信息
+    current_policy_id: str = ""
+    current_policy_title: str = ""
+
+    # 时间信息
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+
+    # 历史记录
+    completed_policies: List[str] = field(default_factory=list)
+    failed_policies: List[Dict[str, str]] = field(default_factory=list)
+
+    # 多阶段进度支持
+    stages: Dict[str, CrawlStage] = field(default_factory=dict)
+    current_stage: str = ""  # 当前阶段名称
+
+    # 兼容性字段（已废弃，保留向后兼容）
+    estimated_total: Optional[int] = None  # 预估总数（现在通过total_count表示）
+
+    def get_current_stage(self) -> Optional[CrawlStage]:
+        """获取当前阶段"""
+        return self.stages.get(self.current_stage)
+
+    def set_stage(self, stage_name: str, description: str = "", total_count: int = 0):
+        """设置当前阶段"""
+        if stage_name not in self.stages:
+            self.stages[stage_name] = CrawlStage(
+                name=stage_name, description=description, total_count=total_count
+            )
+
+        self.current_stage = stage_name
+        stage = self.stages[stage_name]
+        if stage.status == "pending":
+            stage.status = "running"
+            stage.start_time = datetime.now(timezone.utc)
+
+    def update_stage_progress(
+        self,
+        stage_name: str = None,
+        completed: int = 0,
+        failed: int = 0,
+        message: str = "",
+    ):
+        """更新阶段进度"""
+        stage_name = stage_name or self.current_stage
+        if stage_name and stage_name in self.stages:
+            stage = self.stages[stage_name]
+            stage.completed_count += completed
+            stage.failed_count += failed
+            if message:
+                stage.message = message
+
+            # 更新总体进度
+            self._update_overall_progress()
+
+    def complete_stage(self, stage_name: str = None, success: bool = True):
+        """完成阶段"""
+        stage_name = stage_name or self.current_stage
+        if stage_name and stage_name in self.stages:
+            stage = self.stages[stage_name]
+            stage.status = "completed" if success else "failed"
+            stage.end_time = datetime.now(timezone.utc)
+
+    @property
+    def success_rate(self) -> float:
+        """总体成功率"""
+        total_processed = self.completed_count + self.failed_count
+        if total_processed == 0:
+            return 0.0
+        return (self.completed_count / total_processed) * 100
+
+    @property
+    def progress_percentage(self) -> float:
+        """总体进度百分比"""
+        if self.total_count == 0:
+            return 0.0
+        return ((self.completed_count + self.failed_count) / self.total_count) * 100
+
+    @property
+    def current_stage_progress(self) -> float:
+        """当前阶段进度百分比"""
+        stage = self.get_current_stage()
+        return stage.progress_percentage if stage else 0.0
 
     @property
     def elapsed_time(self) -> Optional[float]:
@@ -160,19 +254,58 @@ class CrawlProgress:
         end = self.end_time or datetime.now(timezone.utc)
         return (end - self.start_time).total_seconds()
 
+    def _update_overall_progress(self):
+        """更新总体进度（基于各阶段进度）"""
+        # 如果有明确的阶段，基于当前阶段更新总体进度
+        current_stage = self.get_current_stage()
+        if current_stage and current_stage.total_count > 0:
+            # 对于详情爬取阶段，completed_count就是实际完成的政策数
+            if self.current_stage == "crawl_details":
+                self.completed_count = current_stage.completed_count
+                self.failed_count = current_stage.failed_count
+            # 对于搜索阶段，total_count就是预估的政策数
+            elif self.current_stage == "search_policies":
+                self.total_count = max(self.total_count, current_stage.total_count)
+
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
         return {
+            # 总体进度
             "total_count": self.total_count,
             "completed_count": self.completed_count,
             "failed_count": self.failed_count,
-            "current_policy_id": self.current_policy_id,
-            "current_policy_title": self.current_policy_title,
-            "start_time": self.start_time.isoformat() if self.start_time else None,
-            "end_time": self.end_time.isoformat() if self.end_time else None,
-            "completed_policies": self.completed_policies,
-            "failed_policies": self.failed_policies,
             "success_rate": self.success_rate,
             "progress_percentage": self.progress_percentage,
+            # 当前处理信息
+            "current_policy_id": self.current_policy_id,
+            "current_policy_title": self.current_policy_title,
+            "current_stage": self.current_stage,
+            # 时间信息
+            "start_time": self.start_time.isoformat() if self.start_time else None,
+            "end_time": self.end_time.isoformat() if self.end_time else None,
             "elapsed_time": self.elapsed_time,
+            # 历史记录
+            "completed_policies": self.completed_policies,
+            "failed_policies": self.failed_policies,
+            # 多阶段进度
+            "stages": {
+                name: {
+                    "name": stage.name,
+                    "description": stage.description,
+                    "total_count": stage.total_count,
+                    "completed_count": stage.completed_count,
+                    "failed_count": stage.failed_count,
+                    "progress_percentage": stage.progress_percentage,
+                    "success_rate": stage.success_rate,
+                    "status": stage.status,
+                    "message": stage.message,
+                    "start_time": (
+                        stage.start_time.isoformat() if stage.start_time else None
+                    ),
+                    "end_time": stage.end_time.isoformat() if stage.end_time else None,
+                }
+                for name, stage in self.stages.items()
+            },
+            # 当前阶段进度
+            "current_stage_progress": self.current_stage_progress,
         }

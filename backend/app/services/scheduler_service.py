@@ -27,10 +27,11 @@ class SchedulerService:
         self.scheduler: Optional[BackgroundScheduler] = None
         self.task_service = TaskService()
         self._job_mapping: Dict[str, int] = {}  # job_id -> scheduled_task_id
+        self._is_enabled: bool = False  # 动态启用状态
 
+        # 初始状态：如果环境变量设置为true，则启动调度器
         if settings.scheduler_enabled:
-            self._init_scheduler()
-            logger.info("定时任务调度服务已初始化")
+            self.enable_scheduler()
         else:
             logger.info("定时任务调度服务已禁用（SCHEDULER_ENABLED=False）")
 
@@ -51,10 +52,10 @@ class SchedulerService:
             timezone="Asia/Shanghai",  # 使用中国时区
         )
 
-    def start(self):
-        """启动调度器"""
-        if not settings.scheduler_enabled:
-            logger.warning("定时任务调度器未启用")
+    def enable_scheduler(self):
+        """启用调度器（动态）"""
+        if self._is_enabled:
+            logger.info("定时任务调度器已启用")
             return
 
         if self.scheduler is None:
@@ -65,8 +66,41 @@ class SchedulerService:
             logger.info("定时任务调度器已启动")
             # 加载所有已启用的定时任务
             self.load_enabled_tasks()
+
+        self._is_enabled = True
+        logger.info("定时任务调度服务已动态启用")
+
+    def disable_scheduler(self):
+        """禁用调度器（动态）"""
+        if not self._is_enabled:
+            logger.info("定时任务调度器已禁用")
+            return
+
+        if self.scheduler and self.scheduler.running:
+            # 停止所有正在运行的任务
+            self.scheduler.remove_all_jobs()
+            self.scheduler.shutdown(wait=True)
+            logger.info("定时任务调度器已停止")
+
+        self._job_mapping.clear()
+        self._is_enabled = False
+        logger.info("定时任务调度服务已动态禁用")
+
+    def is_enabled(self) -> bool:
+        """检查调度器是否启用"""
+        return self._is_enabled
+
+    def start(self):
+        """启动调度器（兼容旧接口）"""
+        if self._is_enabled:
+            if self.scheduler and not self.scheduler.running:
+                self.scheduler.start()
+                logger.info("定时任务调度器已启动")
+                self.load_enabled_tasks()
+            else:
+                logger.warning("定时任务调度器已在运行")
         else:
-            logger.warning("定时任务调度器已在运行")
+            logger.warning("定时任务调度器未启用，请先调用 enable_scheduler()")
 
     def shutdown(self):
         """关闭调度器"""
@@ -363,7 +397,7 @@ class SchedulerService:
                     from .email_service import get_email_service
 
                     email_service = get_email_service()
-                    if email_service.is_enabled() and email_service.to_addresses:
+                    if email_service.is_enabled(db) and email_service.to_addresses:
                         import asyncio
 
                         loop = asyncio.new_event_loop()
@@ -572,7 +606,7 @@ class SchedulerService:
         task = self.task_service.create_task(
             db=db,
             task_name=f"[定时]{scheduled_task.task_name}",
-            task_type="scheduled",
+            task_type=scheduled_task.task_type,  # 使用定时任务的实际类型
             config=config,
             user_id=1,  # 定时任务使用系统用户ID
         )
@@ -654,8 +688,8 @@ class SchedulerService:
         db.commit()
         db.refresh(scheduled_task)
 
-        # 添加到调度器
-        if self.scheduler and self.scheduler.running:
+        # 添加到调度器（只有当调度器启用时才添加）
+        if self._is_enabled and self.scheduler and self.scheduler.running:
             try:
                 self._add_job(scheduled_task, db=db)
                 logger.info(f"已启用定时任务: {scheduled_task.task_name}")

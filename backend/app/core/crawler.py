@@ -116,14 +116,37 @@ class PolicyCrawler:
             setattr(self.progress, key, value)
 
         if self.progress_callback:
-            # 生成进度消息字符串
-            if (
-                hasattr(self.progress, "current_policy_title")
-                and self.progress.current_policy_title
-            ):
-                message = f"正在处理: {self.progress.current_policy_title}"
-            else:
-                message = f"进度: {getattr(self.progress, 'completed_count', 0)}/{getattr(self.progress, 'total_count', 0)}"
+            # 生成详细的进度消息字符串
+            current_stage = self.progress.get_current_stage()
+            message_parts = []
+
+            # 添加阶段信息
+            if current_stage:
+                message_parts.append(f"[{current_stage.description}]")
+
+            # 添加当前处理信息
+            if self.progress.current_policy_title:
+                message_parts.append(f"正在处理: {self.progress.current_policy_title}")
+            elif current_stage and current_stage.message:
+                message_parts.append(current_stage.message)
+
+            # 添加总体进度
+            if self.progress.total_count > 0:
+                completed = self.progress.completed_count + self.progress.failed_count
+                message_parts.append(
+                    f"总体进度: {completed}/{self.progress.total_count}"
+                )
+
+                # 添加阶段进度
+                if current_stage and current_stage.total_count > 0:
+                    stage_completed = (
+                        current_stage.completed_count + current_stage.failed_count
+                    )
+                    message_parts.append(
+                        f"阶段进度: {stage_completed}/{current_stage.total_count}"
+                    )
+
+            message = " | ".join(message_parts) if message_parts else "初始化中..."
 
             # 调用回调函数，传递字符串消息
             try:
@@ -1303,6 +1326,10 @@ class PolicyCrawler:
 
         self._update_progress()
 
+        # 设置搜索阶段
+        self.progress.set_stage("search_policies", "搜索政策列表")
+        self._update_progress()
+
         # 1. 搜索所有政策
         all_policies = self.search_all_policies(
             keywords, start_date, end_date, callback
@@ -1313,7 +1340,12 @@ class PolicyCrawler:
             self._update_progress()
             return self.progress
 
-        self.progress.total_count = len(all_policies)
+        # 设置详情爬取阶段
+        self.progress.set_stage(
+            "crawl_details",
+            f"爬取政策详情（共 {len(all_policies)} 条）",
+            len(all_policies),
+        )
         self._update_progress()
 
         if callback:
@@ -1339,10 +1371,12 @@ class PolicyCrawler:
             result_policy = self.crawl_single_policy(policy, callback)
 
             if result_policy:
-                self.progress.completed_count += 1
+                self.progress.update_stage_progress("crawl_details", completed=1)
                 self.progress.completed_policies.append(policy.id)
+                if callback:
+                    callback(f"✓ {policy.title}")
             else:
-                self.progress.failed_count += 1
+                self.progress.update_stage_progress("crawl_details", failed=1)
                 # 从失败日志中获取失败原因（如果已记录）
                 failure_reason = "爬取失败"
                 failed_policy_info = {
@@ -1354,6 +1388,8 @@ class PolicyCrawler:
                     "reason": failure_reason,
                 }
                 self.progress.failed_policies.append(failed_policy_info)
+                if callback:
+                    callback(f"✗ {policy.title} - {failure_reason}")
 
             self._update_progress()
             time.sleep(self.config.get("request_delay", 2))

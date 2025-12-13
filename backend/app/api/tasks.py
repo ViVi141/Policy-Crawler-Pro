@@ -2,7 +2,7 @@
 任务API路由
 """
 
-from typing import Optional
+from typing import Optional, Dict, List
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -10,6 +10,8 @@ import logging
 import zipfile
 import io
 import os
+import asyncio
+import json
 from datetime import datetime, timedelta, timezone
 
 from ..database import get_db
@@ -407,50 +409,57 @@ def download_task_files(
         # 初始化存储服务
         storage_service = StorageService()
 
-        # 创建临时ZIP文件 - 使用更快的压缩算法
-        zip_buffer = io.BytesIO()
+        # 对于大量文件，使用临时文件而不是内存缓冲区
+        # 创建临时ZIP文件路径
+        import tempfile
 
-        # 使用 ZIP_STORED 存储模式（不压缩）以提升速度
-        # 对于文本文件，压缩效果有限，但速度慢
-        # 如果需要压缩，可以改为 ZIP_DEFLATED，但压缩级别设为最低
-        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_STORED) as zip_file:
-            file_count = 0
+        temp_zip_fd, temp_zip_path = tempfile.mkstemp(suffix=".zip")
+        os.close(temp_zip_fd)  # 关闭文件描述符，让zipfile使用路径
 
-            # 确定要下载的文件类型
-            file_types = []
-            if file_format == "all":
-                file_types = ["markdown", "docx"]
-            elif file_format == "markdown":
-                file_types = ["markdown"]
-            elif file_format == "docx":
-                file_types = ["docx"]
-            else:
-                raise HTTPException(
-                    status_code=400, detail=f"不支持的文件格式: {file_format}"
-                )
+        try:
+            # 使用 ZIP_STORED 存储模式（不压缩）以提升速度
+            # 对于文本文件，压缩效果有限，但速度慢
+            # 如果需要压缩，可以改为 ZIP_DEFLATED，但压缩级别设为最低
+            with zipfile.ZipFile(temp_zip_path, "w", zipfile.ZIP_STORED) as zip_file:
+                file_count = 0
 
-            # 导入文件生成工具
-            from ..core.converter import DocumentConverter
+                # 确定要下载的文件类型
+                file_types = []
+                if file_format == "all":
+                    file_types = ["markdown", "docx"]
+                elif file_format == "markdown":
+                    file_types = ["markdown"]
+                elif file_format == "docx":
+                    file_types = ["docx"]
+                else:
+                    raise HTTPException(
+                        status_code=400, detail=f"不支持的文件格式: {file_format}"
+                    )
 
-            converter = DocumentConverter()
+                # 导入文件生成工具
+                from ..core.converter import DocumentConverter
 
-            # 遍历每个政策，获取文件 - 添加进度日志
-            total_policies = len(policies)
-            logger.info(f"开始打包 {total_policies} 个政策的文件")
+                converter = DocumentConverter()
 
-            for i, policy in enumerate(policies, 1):
-                policy_title = (
-                    policy.title.replace("/", "_").replace("\\", "_").replace(":", "_")
-                )
-                safe_title = "".join(
-                    c
-                    for c in policy_title
-                    if c.isalnum() or c in (" ", "-", "_", "(", ")", "（", "）")
-                )[:100]
+                # 遍历每个政策，获取文件 - 添加进度日志
+                total_policies = len(policies)
+                logger.info(f"开始打包 {total_policies} 个政策的文件")
 
-                for file_type in file_types:
-                    # 直接构建本地存储路径（不通过get_policy_file_path，因为它优先返回缓存路径）
-                    file_ext = "md" if file_type == "markdown" else file_type
+                for i, policy in enumerate(policies, 1):
+                    policy_title = (
+                        policy.title.replace("/", "_")
+                        .replace("\\", "_")
+                        .replace(":", "_")
+                    )
+                    safe_title = "".join(
+                        c
+                        for c in policy_title
+                        if c.isalnum() or c in (" ", "-", "_", "(", ")", "（", "）")
+                    )[:100]
+
+                    for file_type in file_types:
+                        # 直接构建本地存储路径（不通过get_policy_file_path，因为它优先返回缓存路径）
+                        file_ext = "md" if file_type == "markdown" else file_type
                     if policy.task_id:
                         file_dir = f"{policy.task_id}/{policy.id}"
                     else:
@@ -587,21 +596,42 @@ def download_task_files(
                             logger.warning(f"读取文件失败 {file_path}: {e}")
                             continue
 
-                    # 每处理10个政策记录一次进度
-                    if i % 10 == 0 or i == total_policies:
-                        logger.info(
-                            f"已处理 {i}/{total_policies} 个政策，当前文件数: {file_count}"
-                        )
+                        # 每处理10个政策记录一次进度
+                        if i % 10 == 0 or i == total_policies:
+                            logger.info(
+                                f"已处理 {i}/{total_policies} 个政策，当前文件数: {file_count}"
+                            )
 
-        if file_count == 0:
-            raise HTTPException(status_code=404, detail="未找到任何可下载的文件")
+                if file_count == 0:
+                    raise HTTPException(
+                        status_code=404, detail="未找到任何可下载的文件"
+                    )
 
-        # 重置缓冲区位置
-        zip_buffer.seek(0)
+        except Exception as zip_error:
+            # 确保临时文件被清理
+            try:
+                if "temp_zip_path" in locals() and os.path.exists(temp_zip_path):
+                    os.unlink(temp_zip_path)
+                    logger.debug(f"已清理临时ZIP文件: {temp_zip_path}")
+            except Exception as cleanup_error:
+                logger.warning(f"清理临时ZIP文件失败: {cleanup_error}")
 
-        # 记录压缩统计信息
-        final_size = zip_buffer.tell()
+            # 重新抛出原始异常
+            raise zip_error
+
+        # 获取文件大小
+        final_size = os.path.getsize(temp_zip_path)
         logger.info(f"ZIP文件打包完成: {file_count} 个文件, 大小: {final_size} bytes")
+
+        # 检查文件大小，如果为0则报错
+        if final_size == 0:
+            logger.error(
+                f"ZIP文件大小为0，可能是打包过程中出现问题。临时文件路径: {temp_zip_path}"
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="文件打包失败，生成的文件大小为0字节。请检查系统内存和磁盘空间。",
+            )
 
         # 生成文件名 - 使用ASCII安全的文件名避免编码问题
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -609,11 +639,28 @@ def download_task_files(
         safe_task_name = "".join(c if ord(c) < 128 else "_" for c in task.task_name)
         zip_filename = f"{safe_task_name}_{timestamp}.zip"
 
+        # 创建文件流生成器，用于StreamingResponse
+        def file_generator():
+            try:
+                with open(temp_zip_path, "rb") as f:
+                    while chunk := f.read(8192):  # 每次读取8KB
+                        yield chunk
+            finally:
+                # 在生成器完成后删除临时文件
+                try:
+                    os.unlink(temp_zip_path)
+                    logger.debug(f"已删除临时ZIP文件: {temp_zip_path}")
+                except Exception as e:
+                    logger.warning(f"删除临时ZIP文件失败: {e}")
+
         # 返回ZIP文件流 - 使用更兼容的Content-Disposition格式
         return StreamingResponse(
-            zip_buffer,
+            file_generator(),
             media_type="application/zip",
-            headers={"Content-Disposition": f'attachment; filename="{zip_filename}"'},
+            headers={
+                "Content-Disposition": f'attachment; filename="{zip_filename}"',
+                "Content-Length": str(final_size),
+            },
         )
 
     except HTTPException:
@@ -621,3 +668,175 @@ def download_task_files(
     except Exception as e:
         logger.error(f"下载任务文件失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"下载任务文件失败: {str(e)}")
+
+
+# SSE 连接管理器
+class TaskProgressManager:
+    """任务进度SSE管理器"""
+
+    def __init__(self):
+        self.active_connections: Dict[int, List[asyncio.Queue]] = (
+            {}
+        )  # task_id -> [queues]
+
+    async def connect(self, task_id: int) -> asyncio.Queue:
+        """建立SSE连接"""
+        if task_id not in self.active_connections:
+            self.active_connections[task_id] = []
+
+        queue = asyncio.Queue()
+        self.active_connections[task_id].append(queue)
+        return queue
+
+    def disconnect(self, task_id: int, queue: asyncio.Queue):
+        """断开SSE连接"""
+        if task_id in self.active_connections:
+            try:
+                self.active_connections[task_id].remove(queue)
+            except ValueError:
+                pass
+            # 如果没有连接了，清理
+            if not self.active_connections[task_id]:
+                del self.active_connections[task_id]
+
+    async def broadcast_progress(self, task_id: int, data: dict):
+        """广播进度更新"""
+        if task_id not in self.active_connections:
+            return
+
+        # 准备SSE数据
+        sse_data = f"data: {json.dumps(data)}\n\n"
+
+        # 发送给所有连接的客户端
+        disconnected_queues = []
+        for queue in self.active_connections[task_id]:
+            try:
+                await queue.put(sse_data)
+            except Exception:
+                # 连接可能已断开
+                disconnected_queues.append(queue)
+
+        # 清理断开的连接
+        for queue in disconnected_queues:
+            self.disconnect(task_id, queue)
+
+
+# 全局进度管理器实例
+progress_manager = TaskProgressManager()
+
+
+async def generate_progress_events(task_id: int, db: Session):
+    """生成SSE事件流"""
+    logger.info(f"建立SSE连接: task_id={task_id}")
+    try:
+        # 建立连接
+        queue = await progress_manager.connect(task_id)
+        logger.info(f"SSE队列已创建: task_id={task_id}")
+
+        # 发送初始任务状态
+        task = task_service.get_task(db, task_id)
+        if task:
+            initial_data = {
+                "type": "task_update",
+                "task_id": task.id,
+                "status": task.status,
+                "progress_message": task.progress_message or "",
+                "start_time": task.start_time.isoformat() if task.start_time else None,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+            logger.info(f"发送初始任务状态: {task.status}")
+            yield f"data: {json.dumps(initial_data)}\n\n"
+
+        # 发送连接确认消息
+        connection_data = {
+            "type": "connection_established",
+            "task_id": task_id,
+            "message": "SSE连接已建立",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        logger.info(f"发送连接确认消息")
+        yield f"data: {json.dumps(connection_data)}\n\n"
+
+        # 发送测试进度消息
+        test_data = {
+            "type": "progress_update",
+            "task_id": task_id,
+            "message": "测试进度更新消息",
+            "progress_message": "SSE连接测试消息\n连接已建立，等待任务开始...",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        logger.info(f"发送测试进度消息")
+        yield f"data: {json.dumps(test_data)}\n\n"
+
+        # 持续监听进度更新
+        message_count = 0
+        while True:
+            try:
+                # 等待进度更新或超时
+                sse_data = await asyncio.wait_for(queue.get(), timeout=30.0)
+                message_count += 1
+                logger.info(f"SSE消息 {message_count}: 发送进度更新")
+                yield sse_data
+            except asyncio.TimeoutError:
+                # 30秒心跳
+                heartbeat_data = {
+                    "type": "heartbeat",
+                    "message": "连接正常",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+                logger.info(f"SSE心跳: task_id={task_id}")
+                yield f"data: {json.dumps(heartbeat_data)}\n\n"
+            except Exception as e:
+                logger.error(f"SSE监听异常: {e}")
+                break
+
+    except Exception as e:
+        logger.error(f"SSE连接错误: {e}")
+        # 发送错误消息
+        error_data = {
+            "type": "error",
+            "message": f"连接错误: {str(e)}",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        yield f"data: {json.dumps(error_data)}\n\n"
+    finally:
+        # 清理连接
+        logger.info(f"清理SSE连接: task_id={task_id}")
+        progress_manager.disconnect(task_id, queue)
+
+
+@router.get("/{task_id}/progress/stream")
+async def stream_task_progress(
+    task_id: int,
+    token: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """流式推送任务进度更新（SSE）"""
+    # 验证token
+    if not token:
+        raise HTTPException(status_code=401, detail="缺少认证令牌")
+
+    from ..services.auth_service import AuthService
+
+    current_user = AuthService.get_current_user(db, token)
+    if not current_user:
+        raise HTTPException(status_code=401, detail="无效的认证令牌")
+
+    # 检查任务是否存在且属于当前用户
+    task = task_service.get_task(db, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    if task.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="无权访问此任务")
+
+    return StreamingResponse(
+        generate_progress_events(task_id, db),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "Cache-Control",
+        },
+    )

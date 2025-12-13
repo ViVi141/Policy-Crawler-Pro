@@ -89,6 +89,7 @@ services:
       - DEBUG=${DEBUG:-false}
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
+      - SCHEDULER_ENABLED=${SCHEDULER_ENABLED:-true}
     volumes:
       - crawled_data:/app/crawled_data
       - cache_data:/app/cache

@@ -230,12 +230,26 @@ class APIClient:
                 )
                 response.raise_for_status()
 
-                # 设置编码
+                # 设置编码，强制使用UTF-8
                 if response.encoding is None or response.encoding.lower() in [
                     "iso-8859-1",
                     "windows-1252",
+                    "gbk",
+                    "gb2312",
+                    "gb18030",
                 ]:
+                    # 优先使用apparent_encoding，如果是中文网站通常能正确检测
                     response.encoding = response.apparent_encoding or "utf-8"
+
+                # 如果检测到可能是中文编码，强制设置为UTF-8
+                if response.encoding and response.encoding.lower() in [
+                    "gbk",
+                    "gb2312",
+                    "gb18030",
+                    "big5",
+                    "big5hkscs",
+                ]:
+                    response.encoding = "utf-8"
 
                 # 尝试解析为JSON
                 try:
@@ -312,7 +326,26 @@ class APIClient:
                     url, timeout=self.config.get("timeout", 30), proxies=proxies
                 )
                 response.raise_for_status()
-                response.encoding = response.apparent_encoding
+
+                # 设置编码，强制使用UTF-8处理中文网站
+                if response.encoding is None or response.encoding.lower() in [
+                    "iso-8859-1",
+                    "windows-1252",
+                    "gbk",
+                    "gb2312",
+                    "gb18030",
+                ]:
+                    response.encoding = response.apparent_encoding or "utf-8"
+
+                # 如果检测到可能是中文编码，强制设置为UTF-8
+                if response.encoding and response.encoding.lower() in [
+                    "gbk",
+                    "gb2312",
+                    "gb18030",
+                    "big5",
+                    "big5hkscs",
+                ]:
+                    response.encoding = "utf-8"
 
                 soup = BeautifulSoup(response.text, "html.parser")
 

@@ -7,7 +7,7 @@ from typing import Optional, List, Dict, Any
 import aiosmtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from ..config import settings
 
@@ -25,64 +25,70 @@ class EmailService:
         """从数据库或settings加载配置（实时更新）"""
         # 尝试从数据库加载配置
         if db is None:
+            # 如果没有传入db，自己创建会话
+            should_close_db = True
             try:
                 from ..database import SessionLocal
 
                 db = SessionLocal()
-                try:
-                    from .config_service import ConfigService
-
-                    config_service = ConfigService()
-                    email_config = config_service.get_email_config(
-                        db, include_password=True
-                    )
-
-                    self.enabled = email_config.get("enabled", settings.email_enabled)
-                    self.smtp_host = (
-                        email_config.get("smtp_host") or settings.email_smtp_host
-                    )
-                    self.smtp_port = (
-                        email_config.get("smtp_port") or settings.email_smtp_port
-                    )
-                    self.smtp_user = (
-                        email_config.get("smtp_user") or settings.email_smtp_user
-                    )
-                    self.smtp_password = (
-                        email_config.get("smtp_password")
-                        or settings.email_smtp_password
-                    )
-                    self.from_address = (
-                        email_config.get("from_address") or settings.email_from_address
-                    )
-                    to_addresses_str = email_config.get("to_addresses", "[]")
-                    if isinstance(to_addresses_str, str):
-                        import json
-
-                        try:
-                            self.to_addresses = json.loads(to_addresses_str)
-                        except Exception:
-                            self.to_addresses = settings.email_to_addresses_list
-                    else:
-                        self.to_addresses = (
-                            to_addresses_str or settings.email_to_addresses_list
-                        )
-
-                    db.close()
-                    return
-                except Exception as e:
-                    logger.warning(f"从数据库加载邮件配置失败，使用默认配置: {e}")
-                    db.close()
             except Exception as e:
                 logger.warning(f"无法连接数据库加载邮件配置，使用默认配置: {e}")
+                # 从settings加载默认配置
+                self.enabled = settings.email_enabled
+                self.smtp_host = settings.email_smtp_host
+                self.smtp_port = settings.email_smtp_port
+                self.smtp_user = settings.email_smtp_user
+                self.smtp_password = settings.email_smtp_password
+                self.from_address = settings.email_from_address
+                self.to_addresses = settings.email_to_addresses_list
+                return
+        else:
+            # 如果传入了db，不要关闭它
+            should_close_db = False
 
-        # 从settings加载默认配置
-        self.enabled = settings.email_enabled
-        self.smtp_host = settings.email_smtp_host
-        self.smtp_port = settings.email_smtp_port
-        self.smtp_user = settings.email_smtp_user
-        self.smtp_password = settings.email_smtp_password
-        self.from_address = settings.email_from_address
-        self.to_addresses = settings.email_to_addresses_list
+        try:
+            from .config_service import ConfigService
+
+            config_service = ConfigService()
+            email_config = config_service.get_email_config(db, include_password=True)
+
+            self.enabled = email_config.get("enabled", settings.email_enabled)
+            self.smtp_host = email_config.get("smtp_host") or settings.email_smtp_host
+            self.smtp_port = email_config.get("smtp_port") or settings.email_smtp_port
+            self.smtp_user = email_config.get("smtp_user") or settings.email_smtp_user
+            self.smtp_password = (
+                email_config.get("smtp_password") or settings.email_smtp_password
+            )
+            self.from_address = (
+                email_config.get("from_address") or settings.email_from_address
+            )
+            to_addresses_str = email_config.get("to_addresses", "[]")
+            if isinstance(to_addresses_str, str):
+                import json
+
+                try:
+                    self.to_addresses = json.loads(to_addresses_str)
+                except Exception:
+                    self.to_addresses = settings.email_to_addresses_list
+            else:
+                self.to_addresses = to_addresses_str or settings.email_to_addresses_list
+
+            if should_close_db:
+                db.close()
+
+        except Exception as e:
+            logger.warning(f"从数据库加载邮件配置失败，使用默认配置: {e}")
+            if should_close_db:
+                db.close()
+
+            # 从settings加载默认配置
+            self.enabled = settings.email_enabled
+            self.smtp_host = settings.email_smtp_host
+            self.smtp_port = settings.email_smtp_port
+            self.smtp_user = settings.email_smtp_user
+            self.smtp_password = settings.email_smtp_password
+            self.from_address = settings.email_from_address
+            self.to_addresses = settings.email_to_addresses_list
 
     def reload_config(self, db: Optional[Any] = None):
         """重新加载配置（用于配置更新后）"""
@@ -322,12 +328,20 @@ class EmailService:
             task_status, ("未知", "gray", "?")
         )
 
-        end_time_str = (end_time or datetime.now(timezone.utc)).strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
-        start_time_str = (
-            start_time.strftime("%Y-%m-%d %H:%M:%S") if start_time else "N/A"
-        )
+        # 将UTC时间转换为北京时间 (UTC+8)
+        def utc_to_beijing(utc_time: datetime) -> str:
+            """将UTC时间转换为北京时间字符串"""
+            if utc_time.tzinfo is None:
+                # 如果时间没有时区信息，假设是UTC
+                utc_time = utc_time.replace(tzinfo=timezone.utc)
+
+            # 转换为北京时间 (UTC+8)
+            beijing_time = utc_time + timedelta(hours=8)
+            return beijing_time.strftime("%Y-%m-%d %H:%M:%S")
+
+        current_time = datetime.now(timezone.utc)
+        end_time_str = utc_to_beijing(end_time or current_time)
+        start_time_str = utc_to_beijing(start_time) if start_time else "N/A"
 
         subject = f"[MNR Law Crawler] 任务{status_text}: {task_name}"
 

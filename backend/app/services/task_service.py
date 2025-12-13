@@ -63,7 +63,7 @@ class TaskService:
             ValueError: 如果爬取任务未指定数据源
         """
         # 验证爬取任务必须指定数据源
-        if task_type == "crawl_task":
+        if task_type in ["crawl_task", "scheduled"]:
             data_sources = config.get("data_sources", [])
             if not data_sources or len(data_sources) == 0:
                 raise ValueError("创建爬取任务时必须至少指定一个数据源")
@@ -484,6 +484,109 @@ class TaskService:
                                 -max_total_length:
                             ]
                         db.commit()
+
+                        # 触发SSE进度广播
+                        try:
+                            from ..api.tasks import progress_manager
+
+                            # 获取爬虫实例的进度数据
+                            progress_obj = None
+                            with self._crawler_lock:
+                                crawler = self._crawler_instances.get(task_id)
+                                if crawler and hasattr(crawler, "progress"):
+                                    progress_obj = crawler.progress
+
+                            # 准备进度数据 - 即使没有crawler progress也要发送基本数据
+                            progress_data_payload = None
+                            if progress_obj and hasattr(progress_obj, "to_dict"):
+                                try:
+                                    progress_data_payload = progress_obj.to_dict()
+                                    logger.debug(
+                                        f"发送详细进度数据: {progress_data_payload.get('total_count', 'N/A')} 总数, {progress_data_payload.get('completed_count', 0)} 已完成"
+                                    )
+                                except Exception as e:
+                                    logger.warning(f"序列化进度数据失败: {e}")
+                            else:
+                                # 如果没有crawler progress，发送基本的任务统计信息
+                                try:
+                                    # 查询任务相关的政策数量作为预估总数
+                                    task_policies = (
+                                        db.query(TaskPolicy)
+                                        .filter(TaskPolicy.task_id == task_id)
+                                        .all()
+                                    )
+                                    estimated_total = (
+                                        len(task_policies) if task_policies else 0
+                                    )
+
+                                    progress_data_payload = {
+                                        "total_count": estimated_total,
+                                        "completed_count": task.success_count or 0,
+                                        "failed_count": task.failed_count or 0,
+                                        "success_rate": 0.0,
+                                        "progress_percentage": 0.0,
+                                        "current_policy_title": "",
+                                        "current_stage": "unknown",
+                                        "stages": {},
+                                    }
+
+                                    # 计算成功率
+                                    total_processed = (
+                                        progress_data_payload["completed_count"]
+                                        + progress_data_payload["failed_count"]
+                                    )
+                                    if total_processed > 0:
+                                        progress_data_payload["success_rate"] = (
+                                            progress_data_payload["completed_count"]
+                                            / total_processed
+                                        ) * 100
+                                        progress_data_payload["progress_percentage"] = (
+                                            total_processed
+                                            / max(
+                                                progress_data_payload["total_count"], 1
+                                            )
+                                        ) * 100
+
+                                    logger.debug(
+                                        f"发送基本进度数据: {progress_data_payload['total_count']} 总数, {progress_data_payload['completed_count']} 已完成, {progress_data_payload['success_rate']:.1f}% 成功率"
+                                    )
+
+                                except Exception as e:
+                                    logger.warning(f"生成基本进度数据失败: {e}")
+
+                            # 发送详细的进度数据
+                            progress_data = {
+                                "type": "progress_update",
+                                "task_id": task_id,
+                                "message": message,
+                                "progress_message": task.progress_message,
+                                "progress_data": progress_data_payload,
+                                "updated_at": datetime.now(timezone.utc).isoformat(),
+                            }
+
+                            logger.info(
+                                f"SSE广播进度更新: task_id={task_id}, message='{message[:50]}...', has_progress_data={progress_obj is not None}"
+                            )
+
+                            # 在新的事件循环中广播（因为这里可能在子线程中）
+                            import asyncio
+
+                            try:
+                                loop = asyncio.new_event_loop()
+                                asyncio.set_event_loop(loop)
+                                loop.run_until_complete(
+                                    progress_manager.broadcast_progress(
+                                        task_id, progress_data
+                                    )
+                                )
+                                loop.close()
+                            except Exception as broadcast_error:
+                                # SSE广播失败不影响主要流程
+                                logger.debug(f"SSE广播失败: {broadcast_error}")
+
+                        except ImportError:
+                            # 如果无法导入，跳过SSE广播
+                            pass
                 except Exception as e:
                     logger.warning(f"保存进度消息失败: {e}")
                     db.rollback()

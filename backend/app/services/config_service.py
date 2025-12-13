@@ -161,7 +161,34 @@ class ConfigService:
             description=f"功能开关: {flag_name}",
         )
 
-        # 注意：这只是在数据库中保存配置，实际生效需要重启应用或动态重载配置
+        # 特殊处理：scheduler_enabled 支持动态切换
+        if flag_name == "scheduler_enabled":
+            try:
+                from .scheduler_service import get_scheduler_service
+
+                scheduler_service = get_scheduler_service()
+
+                if enabled:
+                    scheduler_service.enable_scheduler()
+                    logger.info(f"定时任务调度器已动态启用")
+                else:
+                    scheduler_service.disable_scheduler()
+                    logger.info(f"定时任务调度器已动态禁用")
+
+                return True
+            except Exception as e:
+                logger.error(f"动态切换定时任务调度器失败: {e}", exc_info=True)
+                # 如果动态切换失败，回滚配置
+                self.set_config(
+                    db,
+                    flag_name,
+                    not enabled,  # 回滚到原来的状态
+                    category="feature",
+                    description=f"功能开关: {flag_name}",
+                )
+                raise
+
+        # 其他功能开关仍然需要重启
         logger.warning(f"功能开关 {flag_name} 已设置为 {enabled}，需要重启应用才能生效")
         return True
 
