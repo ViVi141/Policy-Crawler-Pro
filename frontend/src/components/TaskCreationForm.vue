@@ -96,8 +96,8 @@
           <span class="help-text">限制爬取的页面数量，留空表示不限制</span>
         </el-form-item>
 
-        <el-form-item label="数据源" prop="crawlConfig.selectedDataSources" required>
-          <el-checkbox-group v-model="crawlConfig.selectedDataSources">
+        <el-form-item label="数据源" prop="selectedDataSources" required>
+          <el-checkbox-group v-model="selectedDataSources">
             <el-checkbox
               v-for="source in availableDataSources"
               :key="source.name"
@@ -287,7 +287,7 @@ const formRules = computed((): FormRules => ({
   scheduled_task_type: props.taskType === 'scheduled_task' ? [
     { required: true, message: '请选择任务内容类型', trigger: 'change' }
   ] : [],
-  'crawlConfig.selectedDataSources': [
+  selectedDataSources: [
     {
       validator: (_rule: unknown, value: string[], callback: (error?: Error) => void) => {
         const taskType = formData.task_type
@@ -296,14 +296,11 @@ const formRules = computed((): FormRules => ({
         // 对于爬取任务或定时爬取任务，必须至少选择一个数据源
         if ((taskType === 'crawl_task') ||
             (taskType === 'scheduled_task' && scheduledTaskType === 'crawl_task')) {
-          if (!value || value.length === 0) {
-            console.warn('表单验证失败: 数据源未选择', {
-              taskType,
-              scheduledTaskType,
-              value,
-              availableDataSourcesCount: availableDataSources.value.length,
-              crawlConfigSelected: crawlConfig.selectedDataSources
-            })
+          // 使用实际的 crawlConfig.selectedDataSources 而不是表单传递的value
+          const selectedSources = crawlConfig.selectedDataSources
+
+          if (!selectedSources || selectedSources.length === 0) {
+            console.warn(`表单验证失败: 数据源未选择 (任务类型: ${taskType}, 定时任务类型: ${scheduledTaskType}, 可用数据源: ${availableDataSources.value.length}, 已选择: ${selectedSources?.length || 0})`)
             callback(new Error('请至少选择一个数据源'))
             return
           }
@@ -336,6 +333,14 @@ const nextRunTime = computed(() => {
   if (!formData.cron_expression) return ''
   // 这里可以调用API来计算下次运行时间，或者使用前端库计算
   return '' // 暂时返回空，后续可以完善
+})
+
+// 计算属性：数据源选择（用于表单验证）
+const selectedDataSources = computed({
+  get: () => crawlConfig.selectedDataSources,
+  set: (value: string[]) => {
+    crawlConfig.selectedDataSources = value
+  }
 })
 
 // 方法
@@ -406,14 +411,15 @@ const loadDataSources = async () => {
     const response = await configApi.getDataSources()
     availableDataSources.value = response.data_sources
 
-    // 默认选择第一个启用的数据源
-    if (availableDataSources.value.length > 0 && crawlConfig.selectedDataSources.length === 0) {
+    // 默认选择第一个启用的数据源（仅在创建模式且没有选择时）
+    if (availableDataSources.value.length > 0 && crawlConfig.selectedDataSources.length === 0 && props.mode === 'create') {
       const enabledSource = availableDataSources.value.find(ds => ds.enabled)
       if (enabledSource) {
         crawlConfig.selectedDataSources = [enabledSource.name]
       } else {
         crawlConfig.selectedDataSources = [availableDataSources.value[0].name]
       }
+      console.log('创建模式下设置默认数据源:', crawlConfig.selectedDataSources)
     }
   } catch (error) {
     console.warn('获取数据源列表失败:', error)
@@ -518,6 +524,11 @@ const resetForm = () => {
     } else {
       crawlConfig.selectedDataSources = [availableDataSources.value[0].name]
     }
+
+    console.log('表单重置时设置默认数据源:', crawlConfig.selectedDataSources)
+  } else {
+    // 如果没有可用数据源，清空选择
+    crawlConfig.selectedDataSources = []
   }
 }
 
@@ -667,6 +678,11 @@ const handleSubmit = async () => {
 // 监听任务类型变化
 watch(() => formData.task_type, handleTaskTypeChange)
 watch(() => formData.scheduled_task_type, handleScheduledTaskTypeChange)
+
+// 监听数据源选择变化，用于调试
+watch(() => crawlConfig.selectedDataSources, (newVal) => {
+  console.log('数据源选择变化:', newVal)
+}, { deep: true })
 
 onMounted(() => {
   // 组件挂载时的初始化逻辑
