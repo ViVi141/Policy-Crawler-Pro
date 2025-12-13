@@ -76,12 +76,50 @@ export const policiesApi = {
 
   // 获取政策详情
   getPolicyById(id: number): Promise<Policy> {
-    return apiClient.get(`/api/policies/${id}`).then((res) => res.data)
+    return apiClient.get(`/api/policies/${id}`).then((res) => {
+      const item = res.data
+      // 应用与列表页相同的字段映射转换
+      return {
+        ...item,
+        // 基本字段映射
+        publishDate: item.publish_date || item.pub_date || null, // 发布日期
+        effectiveDate: item.effective_date || null, // 生效日期
+        docNumber: item.doc_number || null, // 文号
+        lawLevel: item.level || item.law_type || null, // 效力级别
+        sourceName: item.source_name || null, // 数据源名称
+        sourceUrl: item.source_url || item.source || null, // 数据源URL
+        createdAt: item.created_at || null, // 创建时间
+        updatedAt: item.updated_at || null, // 更新时间
+        // 保留原始字段以兼容性
+        publish_date: item.publish_date || item.pub_date || null,
+        law_type: item.level || item.law_type || null,
+      }
+    })
   },
 
   // 搜索政策
   searchPolicies(params: PolicySearchParams): Promise<PolicyListResponse> {
-    return apiClient.get('/api/policies/search', { params }).then((res) => res.data)
+    return apiClient.get('/api/policies/search', { params }).then((res) => {
+      const data = res.data
+      // 转换响应格式并应用字段映射
+      const items = (data.items || []).map((item: Partial<Policy> & Record<string, string | number | boolean | null | undefined>) => ({
+        ...item,
+        // 基本字段映射
+        publishDate: item.publish_date || item.pub_date || null, // 发布日期
+        effectiveDate: item.effective_date || null, // 生效日期
+        docNumber: item.doc_number || null, // 文号
+        lawLevel: item.level || item.law_type || null, // 效力级别
+        sourceName: item.source_name || null, // 数据源名称
+        sourceUrl: item.source_url || item.source || null, // 数据源URL
+        createdAt: item.created_at || null, // 创建时间
+        updatedAt: item.updated_at || null, // 更新时间
+        // 保留原始字段以兼容性
+        publish_date: item.publish_date || item.pub_date || null,
+        law_type: item.level || item.law_type || null,
+      }))
+
+      return { ...data, items }
+    })
   },
 
   // 下载政策文件

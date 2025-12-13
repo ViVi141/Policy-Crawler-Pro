@@ -281,7 +281,17 @@ def stop_task(
 ):
     """停止/取消任务"""
     try:
-        task = task_service.stop_task(db, task_id)
+        success = task_service.stop_task(db, task_id)
+        if not success:
+            raise HTTPException(
+                status_code=400, detail="任务无法停止（可能不在运行状态）"
+            )
+
+        # 获取更新后的任务对象
+        task = db.query(Task).filter(Task.id == task_id).first()
+        if not task:
+            raise HTTPException(status_code=404, detail="任务不存在")
+
         return TaskResponse.model_validate(task)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -298,7 +308,17 @@ def pause_task(
 ):
     """暂停任务"""
     try:
-        task = task_service.pause_task(db, task_id)
+        success = task_service.pause_task(db, task_id)
+        if not success:
+            raise HTTPException(
+                status_code=400, detail="任务无法暂停（可能不在运行状态）"
+            )
+
+        # 获取更新后的任务对象
+        task = db.query(Task).filter(Task.id == task_id).first()
+        if not task:
+            raise HTTPException(status_code=404, detail="任务不存在")
+
         return TaskResponse.model_validate(task)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -315,7 +335,17 @@ def resume_task(
 ):
     """恢复任务"""
     try:
-        task = task_service.resume_task(db, task_id)
+        success = task_service.resume_task(db, task_id)
+        if not success:
+            raise HTTPException(
+                status_code=400, detail="任务无法恢复（可能不在暂停状态）"
+            )
+
+        # 获取更新后的任务对象
+        task = db.query(Task).filter(Task.id == task_id).first()
+        if not task:
+            raise HTTPException(status_code=404, detail="任务不存在")
+
         return TaskResponse.model_validate(task)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -573,17 +603,17 @@ def download_task_files(
         final_size = zip_buffer.tell()
         logger.info(f"ZIP文件打包完成: {file_count} 个文件, 大小: {final_size} bytes")
 
-        # 生成文件名
+        # 生成文件名 - 使用ASCII安全的文件名避免编码问题
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        zip_filename = f"{task.task_name}_{timestamp}.zip"
+        # 将任务名称转换为ASCII安全的格式
+        safe_task_name = "".join(c if ord(c) < 128 else "_" for c in task.task_name)
+        zip_filename = f"{safe_task_name}_{timestamp}.zip"
 
-        # 返回ZIP文件流
+        # 返回ZIP文件流 - 使用更兼容的Content-Disposition格式
         return StreamingResponse(
             zip_buffer,
             media_type="application/zip",
-            headers={
-                "Content-Disposition": f"attachment; filename*=UTF-8''{zip_filename}"
-            },
+            headers={"Content-Disposition": f'attachment; filename="{zip_filename}"'},
         )
 
     except HTTPException:

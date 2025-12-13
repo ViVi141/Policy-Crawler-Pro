@@ -8,6 +8,13 @@
             返回
           </el-button>
           <div class="header-actions">
+            <el-button
+              v-if="policy?.sourceUrl"
+              type="primary"
+              @click="handleViewSource"
+            >
+              原文链接 <el-icon><Link /></el-icon>
+            </el-button>
             <el-dropdown @command="handleDownload">
               <el-button type="primary">
                 下载 <el-icon><arrow-down /></el-icon>
@@ -24,25 +31,75 @@
       </template>
 
       <div v-if="policy" class="policy-content">
-        <h1 class="policy-title">{{ policy.title }}</h1>
+        <!-- 标题区域 -->
+        <div class="policy-header">
+          <h1 class="policy-title">{{ policy.title }}</h1>
+          <div class="policy-badges">
+            <el-tag v-if="policy.validity" type="info" size="large">{{ policy.validity }}</el-tag>
+            <el-tag v-if="policy.lawLevel" :type="getLawLevelType(policy.lawLevel)" size="large">
+              {{ policy.lawLevel }}
+            </el-tag>
+          </div>
+        </div>
 
-        <el-descriptions :column="2" border class="policy-meta">
-          <el-descriptions-item label="分类">{{ policy.category }}</el-descriptions-item>
-          <el-descriptions-item label="发布机构">{{ policy.publisher }}</el-descriptions-item>
-          <el-descriptions-item label="发布日期">
-            {{ formatDate(policy.publishDate || policy.publish_date || '') }}
-          </el-descriptions-item>
-          <el-descriptions-item label="生效日期">
-            {{ formatDate(policy.effectiveDate || policy.effective_date || '') }}
-          </el-descriptions-item>
-          <el-descriptions-item label="文号">{{ policy.docNumber || policy.doc_number || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="效力级别">{{ policy.lawLevel || policy.law_type || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="有效性">{{ policy.validity || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="状态">{{ policy.status || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="创建时间">
-            {{ formatDateTime(policy.createdAt || policy.created_at || '') }}
-          </el-descriptions-item>
-        </el-descriptions>
+        <!-- 基本信息卡片 -->
+        <el-card class="info-card" shadow="never">
+          <template #header>
+            <div class="card-header">
+              <el-icon><InfoFilled /></el-icon>
+              <span>基本信息</span>
+            </div>
+          </template>
+
+          <el-descriptions :column="{ xs: 1, sm: 2, md: 2, lg: 3, xl: 3 }" border class="policy-meta">
+            <el-descriptions-item label="数据来源">
+              <el-tag type="success">{{ policy.sourceName || policy.source_name || '未知' }}</el-tag>
+            </el-descriptions-item>
+
+            <el-descriptions-item label="分类">
+              {{ policy.category === '全部' ? '全部分类' : policy.category || '未分类' }}
+            </el-descriptions-item>
+
+            <el-descriptions-item label="发布机构" :span="2">
+              <span v-if="policy.publisher" class="highlight-text">{{ policy.publisher }}</span>
+              <span v-else-if="policy.lawLevel" class="highlight-text">{{ policy.lawLevel }}</span>
+              <span v-else class="empty-text">-</span>
+            </el-descriptions-item>
+
+            <el-descriptions-item label="发布日期">
+              <span class="date-text">{{ formatDate(policy.publishDate || '') }}</span>
+            </el-descriptions-item>
+
+            <el-descriptions-item label="生效日期">
+              <span class="date-text">{{ formatDate(policy.effectiveDate || '') || '未指定' }}</span>
+            </el-descriptions-item>
+
+            <el-descriptions-item label="文号" :span="3">
+              <span v-if="policy.docNumber" class="doc-number">{{ policy.docNumber }}</span>
+              <span v-else class="empty-text">-</span>
+            </el-descriptions-item>
+          </el-descriptions>
+        </el-card>
+
+        <!-- 系统信息卡片 -->
+        <el-card class="system-card" shadow="never">
+          <template #header>
+            <div class="card-header">
+              <el-icon><Clock /></el-icon>
+              <span>系统信息</span>
+            </div>
+          </template>
+
+          <el-descriptions :column="2" border class="system-meta">
+            <el-descriptions-item label="创建时间">
+              <span class="datetime-text">{{ formatDateTime(policy.createdAt || '') }}</span>
+            </el-descriptions-item>
+
+            <el-descriptions-item label="最后更新">
+              <span class="datetime-text">{{ formatDateTime(policy.updatedAt || '') }}</span>
+            </el-descriptions-item>
+          </el-descriptions>
+        </el-card>
 
         <div v-if="policy.keywords && policy.keywords.length > 0" class="keywords-section">
           <el-tag
@@ -92,7 +149,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, ArrowDown } from '@element-plus/icons-vue'
+import { ArrowLeft, ArrowDown, Link, InfoFilled, Clock } from '@element-plus/icons-vue'
 import { policiesApi } from '../api/policies'
 import type { Policy } from '../types/policy'
 import type { ApiError } from '../types/common'
@@ -106,7 +163,14 @@ const loading = ref(false)
 const policy = ref<Policy | null>(null)
 
 const formatDate = (date: string) => {
-  return dayjs(date).format('YYYY-MM-DD')
+  if (!date || date === '') {
+    return '-'
+  }
+  const parsed = dayjs(date)
+  if (!parsed.isValid()) {
+    return 'Invalid Date'
+  }
+  return parsed.format('YYYY-MM-DD')
 }
 
 const formatDateTime = (date: string) => {
@@ -163,6 +227,19 @@ const fetchPolicy = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const handleViewSource = () => {
+  if (policy.value?.sourceUrl) {
+    window.open(policy.value.sourceUrl, '_blank')
+  }
+}
+
+const getLawLevelType = (lawLevel: string) => {
+  if (lawLevel.includes('自然资源部')) return 'success'
+  if (lawLevel.includes('国务院')) return 'warning'
+  if (lawLevel.includes('部')) return 'info'
+  return 'primary'
 }
 
 const handleDownload = async (fileType: string) => {
@@ -313,6 +390,86 @@ onMounted(() => {
           overflow-x: auto;
         }
       }
+    }
+
+    // 新的布局样式
+    .policy-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 24px;
+      gap: 16px;
+
+      .policy-title {
+        flex: 1;
+        font-size: 24px;
+        font-weight: 600;
+        color: #303133;
+        line-height: 1.4;
+        margin: 0;
+      }
+
+      .policy-badges {
+        display: flex;
+        gap: 8px;
+        flex-shrink: 0;
+        flex-wrap: wrap;
+      }
+    }
+
+    .info-card,
+    .system-card {
+      margin-bottom: 24px;
+
+      .card-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 600;
+        color: #303133;
+
+        .el-icon {
+          color: #409eff;
+        }
+      }
+    }
+
+    .policy-meta,
+    .system-meta {
+      :deep(.el-descriptions__title) {
+        font-weight: 600;
+        color: #606266;
+        min-width: 100px;
+      }
+
+      :deep(.el-descriptions__content) {
+        color: #303133;
+      }
+    }
+
+    .highlight-text {
+      font-weight: 600;
+      color: #303133;
+    }
+
+    .doc-number {
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      font-size: 14px;
+      background: #f8f9fa;
+      padding: 4px 8px;
+      border-radius: 4px;
+      color: #e74c3c;
+    }
+
+    .date-text,
+    .datetime-text {
+      color: #606266;
+      font-size: 14px;
+    }
+
+    .empty-text {
+      color: #c0c4cc;
+      font-style: italic;
     }
   }
 }

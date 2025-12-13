@@ -642,7 +642,7 @@ class TaskService:
                 email_notified = False  # 标记是否已发送运行中邮件通知
 
                 # 在循环中检查停止标志
-                for policy in policies:
+                for i, policy in enumerate(policies):
                     # 检查是否请求停止 - 线程安全
                     with self._crawler_lock:
                         crawler = self._crawler_instances.get(task_id)
@@ -665,6 +665,22 @@ class TaskService:
                             break
 
                     try:
+                        # 对政策进行详细爬取（包括文件生成）
+                        logger.info(f"开始详细爬取政策: {policy.title[:50]}...")
+                        try:
+                            detailed_policy = crawler.crawl_single_policy(
+                                policy, callback=progress_callback
+                            )
+                            if detailed_policy:
+                                policy = detailed_policy  # 使用详细爬取的结果
+                                logger.info(f"详细爬取完成: {policy.title[:50]}")
+                            else:
+                                logger.warning(
+                                    f"详细爬取失败，使用原始数据: {policy.title[:50]}"
+                                )
+                        except Exception as e:
+                            logger.error(f"详细爬取出错: {e}，使用原始数据继续")
+
                         # 转换为字典
                         if hasattr(policy, "to_dict"):
                             policy_data = policy.to_dict()

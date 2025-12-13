@@ -26,6 +26,10 @@ logger = logging.getLogger(__name__)
 # 文件编号锁（类级别，所有实例共享）
 _file_number_lock = threading.Lock()
 
+# 文件编号计数器（模块级别，所有实例共享）
+_file_counter = 0
+_markdown_counter = 0
+
 # 自然资源部分类配置
 MNR_CATEGORIES = {
     "自然资源调查监测": {"code": "1318", "name": "自然资源调查监测"},
@@ -738,6 +742,25 @@ class PolicyCrawler:
                     if metadata.get("doc_number") and not policy.doc_number:
                         policy.doc_number = metadata["doc_number"]
 
+                # 后备逻辑：根据文号推断发布机构和效力级别
+                if policy.doc_number and not policy.publisher:
+                    if policy.doc_number.startswith("自然资发"):
+                        policy.publisher = "自然资源部"
+                        if not policy.level:
+                            policy.level = "自然资源部"
+                        logger.debug(
+                            f"根据文号推断发布机构: {policy.doc_number} -> 自然资源部"
+                        )
+                    elif policy.doc_number.startswith(
+                        "国土资发"
+                    ) or policy.doc_number.startswith("国土调查办发"):
+                        policy.publisher = "国土资源部"
+                        if not policy.level:
+                            policy.level = "国土资源部"
+                        logger.debug(
+                            f"根据文号推断发布机构: {policy.doc_number} -> 国土资源部"
+                        )
+
             # 2. 保存JSON数据
             if self.config.get("save_json", True):
                 self._save_json(policy)
@@ -751,12 +774,24 @@ class PolicyCrawler:
                 self._download_attachments(policy, attachments, file_number, callback)
 
             # 5. 生成RAG Markdown
-            if self.config.get("save_markdown", True):
+            save_markdown = self.config.get("save_markdown", True)
+            logger.info(f"爬虫配置: save_markdown={save_markdown}")
+            if save_markdown:
+                logger.info("开始生成Markdown文件...")
                 self._generate_rag_markdown(policy, markdown_number)
+                logger.info(f"Markdown文件生成完成: {policy.markdown_path}")
+            else:
+                logger.warning("Markdown文件生成已禁用")
 
             # 6. 生成DOCX格式（如果启用）
-            if self.config.get("save_docx", True):
+            save_docx = self.config.get("save_docx", True)
+            logger.info(f"爬虫配置: save_docx={save_docx}")
+            if save_docx:
+                logger.info("开始生成DOCX文件...")
                 self._generate_docx(policy, markdown_number, callback)
+                logger.info("DOCX文件生成完成")
+            else:
+                logger.warning("DOCX文件生成已禁用")
 
             if callback:
                 callback("   ✓ 政策爬取完成")
@@ -1021,6 +1056,10 @@ class PolicyCrawler:
                                 if numbers:
                                     _markdown_counter = max(numbers)
 
+            # 递增计数器并返回
+            _markdown_counter += 1
+            return _markdown_counter
+
     def _get_next_file_number(self) -> int:
         """获取下一个附件文件编号（线程安全）"""
         global _file_counter
@@ -1039,6 +1078,10 @@ class PolicyCrawler:
                                 numbers.append(int(parts[0]))
                                 if numbers:
                                     _file_counter = max(numbers)
+
+            # 递增计数器并返回
+            _file_counter += 1
+            return _file_counter
 
     def _download_attachments(
         self,

@@ -108,70 +108,91 @@
         stripe
         style="width: 100%"
         @row-click="handleRowClick"
+        :header-cell-style="{ background: '#fafafa', fontWeight: '600' }"
       >
-        <el-table-column prop="title" label="标题" min-width="300" show-overflow-tooltip />
-        <el-table-column prop="category_display" label="数据源-分类" width="180" show-overflow-tooltip>
+        <el-table-column prop="title" label="标题" min-width="350" show-overflow-tooltip>
           <template #default="{ row }">
-            <span v-if="row.category_display">{{ row.category_display }}</span>
-            <span v-else-if="row.source_name && row.category">
-              {{ row.category === '全部' ? row.source_name : `${row.source_name}-${row.category}` }}
-            </span>
-            <span v-else-if="row.category">{{ row.category }}</span>
-            <span v-else-if="row.source_name">{{ row.source_name }}</span>
-            <span v-else>-</span>
+            <div class="title-cell">
+              <span class="policy-title">{{ row.title }}</span>
+              <el-tag v-if="row.validity" size="small" type="info" class="validity-tag">{{ row.validity }}</el-tag>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column prop="publisher" label="发布机构" width="150" show-overflow-tooltip>
+        <el-table-column label="来源信息" width="200" show-overflow-tooltip>
           <template #default="{ row }">
-            <span v-if="row.publisher">{{ row.publisher }}</span>
-            <span v-else style="color: #c0c4cc;">-</span>
+            <div class="source-info">
+              <div class="source-name">
+                <el-tag size="small" type="success">{{ row.sourceName || row.source_name || '未知' }}</el-tag>
+              </div>
+              <div class="category-text">
+                {{ row.category_display ||
+                   (row.category === '全部' ? '全部分类' : row.category) ||
+                   '未分类' }}
+              </div>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column prop="docNumber" label="文号" width="180" show-overflow-tooltip>
+        <el-table-column prop="publisher" label="发布机构" width="160" show-overflow-tooltip>
           <template #default="{ row }">
-            <span v-if="row.docNumber">{{ row.docNumber }}</span>
-            <span v-else style="color: #c0c4cc;">-</span>
+            <span v-if="row.publisher" class="publisher-text">{{ row.publisher }}</span>
+            <span v-else class="empty-text">-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="publishDate" label="发布日期" width="120">
+        <el-table-column prop="docNumber" label="文号" width="200" show-overflow-tooltip>
           <template #default="{ row }">
-            {{ formatDate(row.publishDate || row.publish_date) }}
+            <span v-if="row.docNumber" class="doc-number">{{ row.docNumber }}</span>
+            <span v-else class="empty-text">-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="lawLevel" label="效力级别" width="140" show-overflow-tooltip>
+        <el-table-column prop="publishDate" label="发布日期" width="120" align="center">
           <template #default="{ row }">
-            <span v-if="row.lawLevel">{{ row.lawLevel }}</span>
-            <span v-else style="color: #c0c4cc;">-</span>
+            <span class="date-text">{{ formatDate(row.publishDate || row.publish_date) }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="validity" label="有效性" width="140" show-overflow-tooltip>
+        <el-table-column prop="lawLevel" label="效力级别" width="130" align="center">
           <template #default="{ row }">
-            <el-tag v-if="row.validity" size="small" type="info">{{ row.validity }}</el-tag>
-            <span v-else style="color: #c0c4cc;">-</span>
+            <el-tag v-if="row.lawLevel" size="small" :type="getLawLevelType(row.lawLevel)">
+              {{ row.lawLevel }}
+            </el-tag>
+            <span v-else class="empty-text">-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="validity" label="有效性" width="140" show-overflow-tooltip>
+        <el-table-column label="操作" width="220" fixed="right" align="center">
           <template #default="{ row }">
-            <el-tag v-if="row.validity" size="small" type="info">{{ row.validity }}</el-tag>
-            <span v-else style="color: #c0c4cc;">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="150" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="primary" @click.stop="handleViewDetail(row)">
-              查看详情
-            </el-button>
-            <el-dropdown @command="(cmd: string) => handleDownload(row, cmd)">
-              <el-button link type="primary">
-                下载 <el-icon><arrow-down /></el-icon>
+            <div class="action-buttons">
+              <el-button size="small" type="primary" @click.stop="handleViewDetail(row)">
+                <el-icon><View /></el-icon>
+                详情
               </el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item command="markdown">Markdown</el-dropdown-item>
-                  <el-dropdown-item command="docx">DOCX</el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
+              <el-button
+                v-if="row.sourceUrl"
+                size="small"
+                type="success"
+                @click.stop="handleViewSource(row)"
+                title="查看原文"
+              >
+                <el-icon><Link /></el-icon>
+                原文
+              </el-button>
+              <el-dropdown @command="(cmd: string) => handleDownload(row, cmd)" trigger="click">
+                <el-button size="small" type="info">
+                  <el-icon><Download /></el-icon>
+                  下载
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="markdown">
+                      <el-icon><Document /></el-icon>
+                      Markdown
+                    </el-dropdown-item>
+                    <el-dropdown-item command="docx">
+                      <el-icon><Files /></el-icon>
+                      Word文档
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -233,7 +254,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Search, ArrowDown } from '@element-plus/icons-vue'
+import { Search, Link, View, Download, Document, Files } from '@element-plus/icons-vue'
 import { policiesApi } from '../api/policies'
 import { tasksApi } from '../api/tasks'
 import type { Policy, PolicySearchParams } from '../types/policy'
@@ -385,6 +406,19 @@ const handleRowClick = (row: Policy) => {
 
 const handleViewDetail = (row: Policy) => {
   router.push(`/policies/${row.id}`)
+}
+
+const handleViewSource = (row: Policy) => {
+  if (row.sourceUrl) {
+    window.open(row.sourceUrl, '_blank')
+  }
+}
+
+const getLawLevelType = (lawLevel: string) => {
+  if (lawLevel.includes('自然资源部')) return 'success'
+  if (lawLevel.includes('国务院')) return 'warning'
+  if (lawLevel.includes('部')) return 'info'
+  return 'primary'
 }
 
 const handleDownload = async (row: Policy, fileType: string) => {
@@ -547,6 +581,83 @@ onMounted(() => {
     margin-top: 20px;
     justify-content: flex-end;
     flex-wrap: wrap;
+  }
+
+  // 标题单元格样式
+  .title-cell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    .policy-title {
+      flex: 1;
+      font-weight: 500;
+      color: #303133;
+    }
+
+    .validity-tag {
+      flex-shrink: 0;
+    }
+  }
+
+  // 来源信息样式
+  .source-info {
+    .source-name {
+      margin-bottom: 4px;
+    }
+
+    .category-text {
+      font-size: 12px;
+      color: #909399;
+    }
+  }
+
+  // 发布机构样式
+  .publisher-text {
+    font-weight: 500;
+    color: #606266;
+  }
+
+  // 文号样式
+  .doc-number {
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 13px;
+    color: #606266;
+  }
+
+  // 日期样式
+  .date-text {
+    color: #606266;
+    font-size: 13px;
+  }
+
+  // 空值样式
+  .empty-text {
+    color: #c0c4cc;
+  }
+
+  // 操作按钮组样式
+  .action-buttons {
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  // 表格行样式
+  :deep(.el-table) {
+    .el-table__row {
+      &:hover {
+        .action-buttons {
+          opacity: 1;
+        }
+      }
+    }
+
+    .action-buttons {
+      opacity: 0.8;
+      transition: opacity 0.2s ease;
+    }
   }
 }
 

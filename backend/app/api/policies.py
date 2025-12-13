@@ -215,7 +215,58 @@ def get_policy(
     detail = PolicyDetailResponse.model_validate(policy)
     detail.attachments = [AttachmentResponse.model_validate(att) for att in attachments]
 
-    return detail
+    # 转换为字典进行字段名映射（与列表页保持一致）
+    detail_dict = detail.model_dump()
+
+    # 添加前端期望的字段名（兼容性）
+    pub_date_value = detail_dict.get("pub_date")
+    logger.info(f"原始pub_date值: {pub_date_value}, 类型: {type(pub_date_value)}")
+
+    if pub_date_value:
+        detail_dict["publish_date"] = (
+            pub_date_value.isoformat()
+            if hasattr(pub_date_value, "isoformat")
+            else str(pub_date_value)
+        )
+        logger.info(f"转换后publish_date: {detail_dict['publish_date']}")
+    else:
+        detail_dict["publish_date"] = ""
+        logger.info("pub_date为空，设置publish_date为空字符串")
+
+    # 确保日期字段格式正确（dayjs期望ISO格式）
+    if detail_dict.get("effective_date"):
+        detail_dict["effective_date"] = (
+            detail_dict["effective_date"].isoformat()
+            if hasattr(detail_dict["effective_date"], "isoformat")
+            else str(detail_dict["effective_date"])
+        )
+
+    if detail_dict.get("created_at"):
+        detail_dict["created_at"] = (
+            detail_dict["created_at"].isoformat()
+            if hasattr(detail_dict["created_at"], "isoformat")
+            else str(detail_dict["created_at"])
+        )
+
+    # 添加前端期望的字段别名
+    detail_dict["publishDate"] = detail_dict.get("publish_date")  # camelCase版本
+    detail_dict["effectiveDate"] = detail_dict.get("effective_date")  # camelCase版本
+    detail_dict["docNumber"] = detail_dict.get("doc_number")  # camelCase版本
+    detail_dict["lawLevel"] = detail_dict.get("level")  # 前端期望的字段名
+    detail_dict["law_type"] = detail_dict.get("level")  # 另一个前端期望的字段名
+    detail_dict["createdAt"] = detail_dict.get("created_at")  # camelCase版本
+
+    # 调试：打印返回的数据结构
+    logger.info(
+        f"详细页API返回数据: publisher={detail_dict.get('publisher')}, level={detail_dict.get('level')}, law_type={detail_dict.get('law_type')}"
+    )
+    logger.info(
+        f"详细页API日期字段: pub_date={detail_dict.get('pub_date')}, publish_date={detail_dict.get('publish_date')}, publishDate={detail_dict.get('publishDate')}"
+    )
+    logger.info(f"详细页API完整数据: {detail_dict}")
+
+    # 直接返回修改后的字典（不重新验证，避免覆盖映射）
+    return detail_dict
 
 
 @router.delete("/{policy_id}")

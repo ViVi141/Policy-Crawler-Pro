@@ -96,8 +96,8 @@
           <span class="help-text">限制爬取的页面数量，留空表示不限制</span>
         </el-form-item>
 
-        <el-form-item label="数据源" prop="selectedDataSources" required>
-          <el-checkbox-group v-model="selectedDataSources">
+        <el-form-item label="数据源" prop="crawlConfig.selectedDataSources">
+          <el-checkbox-group v-model="crawlConfig.selectedDataSources">
             <el-checkbox
               v-for="source in availableDataSources"
               :key="source.name"
@@ -287,24 +287,13 @@ const formRules = computed((): FormRules => ({
   scheduled_task_type: props.taskType === 'scheduled_task' ? [
     { required: true, message: '请选择任务内容类型', trigger: 'change' }
   ] : [],
-  selectedDataSources: [
+  'crawlConfig.selectedDataSources': [
     {
-      validator: (_rule: unknown, value: string[], callback: (error?: Error) => void) => {
-        const taskType = formData.task_type
-        const scheduledTaskType = formData.scheduled_task_type
-
-        // 对于爬取任务或定时爬取任务，必须至少选择一个数据源
-        if ((taskType === 'crawl_task') ||
-            (taskType === 'scheduled_task' && scheduledTaskType === 'crawl_task')) {
-          if (!value || value.length === 0) {
-            console.warn(`表单验证失败: 数据源未选择 (任务类型: ${taskType}, 定时任务类型: ${scheduledTaskType}, 可用数据源: ${availableDataSources.value.length}, 已选择: ${value?.length || 0})`)
-            callback(new Error('请至少选择一个数据源'))
-            return
-          }
-        }
+      validator: (_rule: unknown, _value: string[], callback: (error?: Error) => void) => {
+        // 移除了字段级验证，改为在提交时验证
         callback()
       },
-      trigger: 'change',
+      trigger: 'blur',
     },
   ],
 }))
@@ -330,14 +319,6 @@ const nextRunTime = computed(() => {
   if (!formData.cron_expression) return ''
   // 这里可以调用API来计算下次运行时间，或者使用前端库计算
   return '' // 暂时返回空，后续可以完善
-})
-
-// 计算属性：数据源选择（用于表单验证）
-const selectedDataSources = computed({
-  get: () => crawlConfig.selectedDataSources,
-  set: (value: string[]) => {
-    crawlConfig.selectedDataSources = value
-  }
 })
 
 // 方法
@@ -542,8 +523,21 @@ const handleCancel = () => {
 const handleSubmit = async () => {
   if (!formRef.value) return
 
+  // 首先进行表单验证
   await formRef.value.validate(async (valid: boolean) => {
     if (valid) {
+      // 自定义验证：检查数据源选择
+      const taskType = formData.task_type
+      const scheduledTaskType = formData.scheduled_task_type
+
+      // 对于爬取任务或定时爬取任务，必须至少选择一个数据源
+      if ((taskType === 'crawl_task') ||
+          (taskType === 'scheduled_task' && scheduledTaskType === 'crawl_task')) {
+        if (!crawlConfig.selectedDataSources || crawlConfig.selectedDataSources.length === 0) {
+          ElMessage.error('请至少选择一个数据源')
+          return
+        }
+      }
       loading.value = true
       try {
         let submitData: any

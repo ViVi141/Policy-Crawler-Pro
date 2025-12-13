@@ -7,6 +7,7 @@ import requests
 import time
 import random
 import json
+import logging
 import warnings
 from typing import Dict, Optional, Any, List
 from urllib.parse import urljoin
@@ -21,6 +22,9 @@ except (ImportError, AttributeError):
     pass
 
 from .config import Config
+
+# 使用模块级logger
+logger = logging.getLogger(__name__)
 
 
 # User-Agent列表
@@ -666,6 +670,31 @@ class APIClient:
                                 or not metadata["effective_date"]
                             ):
                                 metadata["effective_date"] = value
+
+        # 后备逻辑：根据文号推断发布机构（针对自然资源部网站）
+        # 检查是否已经有文号，如果有则尝试推断发布机构
+        existing_doc_number = metadata.get("doc_number", "")
+        if existing_doc_number and not metadata.get("publisher"):
+            if existing_doc_number.startswith("自然资发"):
+                metadata["publisher"] = "自然资源部"
+                metadata["level"] = "自然资源部"
+                logger.debug(
+                    f"根据文号推断发布机构: {existing_doc_number} -> 自然资源部"
+                )
+            elif existing_doc_number.startswith(
+                "国土资发"
+            ) or existing_doc_number.startswith("国土调查办发"):
+                metadata["publisher"] = "国土资源部"
+                metadata["level"] = "国土资源部"
+                logger.debug(
+                    f"根据文号推断发布机构: {existing_doc_number} -> 国土资源部"
+                )
+            elif existing_doc_number.startswith("国土资源部"):
+                metadata["publisher"] = "国土资源部"
+                metadata["level"] = "国土资源部"
+                logger.debug(
+                    f"根据文号推断发布机构: {existing_doc_number} -> 国土资源部"
+                )
 
         return metadata
 
