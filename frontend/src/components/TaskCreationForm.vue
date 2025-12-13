@@ -208,8 +208,8 @@ import { Setting } from '@element-plus/icons-vue'
 import CronSelector from './CronSelector.vue'
 import { configApi } from '../api/config'
 import type { FormInstance, FormRules } from 'element-plus'
-import type { TaskCreateRequest, Task } from '../types/task'
-import type { ScheduledTask, ScheduledTaskCreateRequest } from '../types/scheduledTask'
+import type { Task } from '../types/task'
+import type { ScheduledTask } from '../types/scheduledTask'
 import type { TaskConfig } from '../types/common'
 
 // 任务表单数据类型
