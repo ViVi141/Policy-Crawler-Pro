@@ -1,3 +1,16 @@
+// ==============================================================================
+// MNR Law Crawler Online - Vue应用主入口
+// ==============================================================================
+//
+// 项目名称: MNR Law Crawler Online (自然资源部法规爬虫系统 - Web版)
+// 项目地址: https://github.com/ViVi141/MNR-Law-Crawler-Online
+// 作者: ViVi141
+// 许可证: MIT License
+//
+// 描述: Vue 3应用的主入口文件，负责应用初始化、插件配置和挂载
+//
+// ==============================================================================
+
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import ElementPlus from 'element-plus'

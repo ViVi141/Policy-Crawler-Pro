@@ -46,6 +46,10 @@
             <el-icon><Setting /></el-icon>
             <span>系统设置</span>
           </el-menu-item>
+          <el-menu-item index="/about">
+            <el-icon><InfoFilled /></el-icon>
+            <span>关于项目</span>
+          </el-menu-item>
         </el-menu>
       </el-aside>
       <el-main class="main-content">
@@ -68,6 +72,7 @@ import {
   Timer,
   Box,
   Setting,
+  InfoFilled,
 } from '@element-plus/icons-vue'
 
 const route = useRoute()

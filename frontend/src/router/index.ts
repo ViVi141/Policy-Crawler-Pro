@@ -1,3 +1,16 @@
+// ==============================================================================
+// MNR Law Crawler Online - Vue路由配置
+// ==============================================================================
+//
+// 项目名称: MNR Law Crawler Online (自然资源部法规爬虫系统 - Web版)
+// 项目地址: https://github.com/ViVi141/MNR-Law-Crawler-Online
+// 作者: ViVi141
+// 许可证: MIT License
+//
+// 描述: Vue Router路由配置，定义应用的页面路由和导航守卫
+//
+// ==============================================================================
+
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import type { RouteRecordRaw, NavigationGuardNext, RouteLocationNormalized } from 'vue-router'
@@ -50,6 +63,12 @@ const routes: RouteRecordRaw[] = [
         name: 'Backups',
         component: () => import('../views/Backups.vue'),
         meta: { title: '备份管理' },
+      },
+      {
+        path: 'about',
+        name: 'About',
+        component: () => import('../views/About.vue'),
+        meta: { title: '关于项目' },
       },
     ],
   },

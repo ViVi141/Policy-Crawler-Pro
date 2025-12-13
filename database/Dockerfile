@@ -1,3 +1,17 @@
+# ==============================================================================
+# MNR Law Crawler Online - 数据库Docker镜像构建文件
+# ==============================================================================
+#
+# 项目名称: MNR Law Crawler Online (自然资源部法规爬虫系统 - Web版)
+# 项目地址: https://github.com/ViVi141/MNR-Law-Crawler-Online
+# 作者: ViVi141
+# 许可证: MIT License
+#
+# 描述: 该Dockerfile用于构建PostgreSQL数据库服务的Docker镜像
+#       基于PostgreSQL 18，支持自动密码生成和中文分词
+#
+# ==============================================================================
+
 # PostgreSQL 18
 FROM postgres:18-alpine
 
