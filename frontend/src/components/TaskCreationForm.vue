@@ -296,11 +296,8 @@ const formRules = computed((): FormRules => ({
         // 对于爬取任务或定时爬取任务，必须至少选择一个数据源
         if ((taskType === 'crawl_task') ||
             (taskType === 'scheduled_task' && scheduledTaskType === 'crawl_task')) {
-          // 使用实际的 crawlConfig.selectedDataSources 而不是表单传递的value
-          const selectedSources = crawlConfig.selectedDataSources
-
-          if (!selectedSources || selectedSources.length === 0) {
-            console.warn(`表单验证失败: 数据源未选择 (任务类型: ${taskType}, 定时任务类型: ${scheduledTaskType}, 可用数据源: ${availableDataSources.value.length}, 已选择: ${selectedSources?.length || 0})`)
+          if (!value || value.length === 0) {
+            console.warn(`表单验证失败: 数据源未选择 (任务类型: ${taskType}, 定时任务类型: ${scheduledTaskType}, 可用数据源: ${availableDataSources.value.length}, 已选择: ${value?.length || 0})`)
             callback(new Error('请至少选择一个数据源'))
             return
           }
