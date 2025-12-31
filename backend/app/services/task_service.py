@@ -822,8 +822,9 @@ class TaskService:
                             # 更新统计信息（如果有部分政策已获取）
                             if len(policies) > 0:
                                 task.policy_count = len(policies)
-                                task.success_count = saved_count
-                                task.failed_count = failed_count + skipped_count
+                                # 如果爬取失败，计数变量还未初始化，设置为0
+                                task.success_count = 0
+                                task.failed_count = 0
                             db.commit()
                             logger.info(f"任务 {task_id} 状态已更新为失败")
                     except Exception as update_error:
