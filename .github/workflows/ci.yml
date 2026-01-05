@@ -409,7 +409,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.33.1
         with:
           scan-type: 'fs'
           scan-ref: '.'
@@ -475,7 +475,7 @@ jobs:
 
       - name: Scan backend Docker image
         if: steps.check-backend-image.outputs.exists == 'true'
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.33.1
         with:
           image-ref: ${{ steps.check-backend-image.outputs.image }}
           format: 'sarif'
@@ -519,7 +519,7 @@ jobs:
 
       - name: Scan frontend Docker image
         if: steps.check-frontend-image.outputs.exists == 'true'
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.33.1
         with:
           image-ref: ${{ steps.check-frontend-image.outputs.image }}
           format: 'sarif'
