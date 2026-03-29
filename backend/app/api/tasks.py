@@ -13,6 +13,7 @@ import os
 import asyncio
 import json
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 
 from ..database import get_db
 from ..middleware.auth import get_current_user
@@ -22,6 +23,7 @@ from ..models.policy import Policy
 from ..schemas.task import TaskCreate, TaskResponse, TaskListItem, TaskListResponse
 from ..services.task_service import TaskService
 from ..services.storage_service import StorageService
+from ..utils.zip_arcname import allocate_unique_zip_arcname
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 task_service = TaskService()
@@ -185,6 +187,8 @@ def create_task(
         _ = task.id, task.task_name, task.task_type, task.status, task.created_at
 
         return TaskResponse.model_validate(task)
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -268,6 +272,8 @@ def start_task(
     try:
         task = task_service.start_task(db, task_id, background=background)
         return TaskResponse.model_validate(task)
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -295,6 +301,8 @@ def stop_task(
             raise HTTPException(status_code=404, detail="任务不存在")
 
         return TaskResponse.model_validate(task)
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -322,6 +330,8 @@ def pause_task(
             raise HTTPException(status_code=404, detail="任务不存在")
 
         return TaskResponse.model_validate(task)
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -349,6 +359,8 @@ def resume_task(
             raise HTTPException(status_code=404, detail="任务不存在")
 
         return TaskResponse.model_validate(task)
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -366,6 +378,8 @@ def delete_task(
     try:
         task_service.delete_task(db, task_id)
         return {"message": "任务已删除", "id": task_id}
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -447,7 +461,8 @@ def download_task_files(
 
                 for i, policy in enumerate(policies, 1):
                     policy_title = (
-                        policy.title.replace("/", "_")
+                        (policy.title or "")
+                        .replace("/", "_")
                         .replace("\\", "_")
                         .replace(":", "_")
                     )
@@ -460,147 +475,155 @@ def download_task_files(
                     for file_type in file_types:
                         # 直接构建本地存储路径（不通过get_policy_file_path，因为它优先返回缓存路径）
                         file_ext = "md" if file_type == "markdown" else file_type
-                    if policy.task_id:
-                        file_dir = f"{policy.task_id}/{policy.id}"
-                    else:
-                        file_dir = str(policy.id)
+                        if policy.task_id:
+                            file_dir = f"{policy.task_id}/{policy.id}"
+                        else:
+                            file_dir = str(policy.id)
 
-                    file_path = os.path.join(
-                        str(storage_service.local_dir),
-                        "policies",
-                        file_dir,
-                        f"{policy.id}.{file_ext}",
-                    )
-
-                    # 检查本地存储文件是否存在
-                    if os.path.exists(file_path):
-                        # 文件存在，直接使用
-                        logger.debug(f"使用现有文件: {file_path}")
-                    else:
-                        # 文件不存在，尝试重新生成
-                        logger.warning(
-                            f"政策 {policy.id} 的 {file_type} 文件不存在，尝试重新生成..."
+                        file_path = os.path.join(
+                            str(storage_service.local_dir),
+                            "policies",
+                            file_dir,
+                            f"{policy.id}.{file_ext}",
                         )
-                        try:
-                            # 使用storage_service的临时目录，确保文件可以被多个任务共享
-                            from ..services.file_cleanup_service import (
-                                get_cleanup_service,
-                            )
 
-                            cleanup_service = get_cleanup_service()
-
-                            # 创建临时目录（基于policy_id，确保同一政策的文件可以被多个任务共享）
-                            temp_base_dir = (
-                                storage_service.local_dir
-                                / "temp_generated"
-                                / str(policy.id)
+                        # 检查本地存储文件是否存在
+                        if os.path.exists(file_path):
+                            # 文件存在，直接使用
+                            logger.debug(f"使用现有文件: {file_path}")
+                        else:
+                            # 文件不存在，尝试重新生成
+                            logger.warning(
+                                f"政策 {policy.id} 的 {file_type} 文件不存在，尝试重新生成..."
                             )
-                            temp_base_dir.mkdir(parents=True, exist_ok=True)
-                            # 将文件类型转换为实际扩展名
-                            temp_file_ext = (
-                                "md" if file_type == "markdown" else file_type
-                            )
-                            temp_file_path = (
-                                temp_base_dir / f"{policy.id}.{temp_file_ext}"
-                            )
-
-                            # 如果临时文件已存在且未过期（1天内），直接使用
-                            if temp_file_path.exists():
-                                file_stat = temp_file_path.stat()
-                                file_age = datetime.now(
-                                    timezone.utc
-                                ) - datetime.fromtimestamp(
-                                    file_stat.st_mtime, tz=timezone.utc
+                            try:
+                                # 使用storage_service的临时目录，确保文件可以被多个任务共享
+                                from ..services.file_cleanup_service import (
+                                    get_cleanup_service,
                                 )
-                                if file_age < timedelta(hours=24):
-                                    file_path = str(temp_file_path)
-                                    logger.debug(f"使用已存在的临时文件: {file_path}")
-                                else:
-                                    # 删除过期文件
-                                    temp_file_path.unlink()
-                            else:
-                                # 根据文件类型生成文件
-                                if file_type == "markdown":
-                                    # 生成Markdown文件
-                                    md_content = _generate_markdown_from_policy(policy)
-                                    with open(
-                                        temp_file_path, "w", encoding="utf-8"
-                                    ) as f:
-                                        f.write(md_content)
-                                elif file_type == "docx":
-                                    # 生成DOCX文件
-                                    _generate_docx_from_policy(
-                                        policy, str(temp_file_path), converter
+
+                                cleanup_service = get_cleanup_service()
+
+                                # 创建临时目录（基于policy_id，确保同一政策的文件可以被多个任务共享）
+                                temp_base_dir = (
+                                    storage_service.local_dir
+                                    / "temp_generated"
+                                    / str(policy.id)
+                                )
+                                temp_base_dir.mkdir(parents=True, exist_ok=True)
+                                # 将文件类型转换为实际扩展名
+                                temp_file_ext = (
+                                    "md" if file_type == "markdown" else file_type
+                                )
+                                temp_file_path = (
+                                    temp_base_dir / f"{policy.id}.{temp_file_ext}"
+                                )
+
+                                # 如果临时文件已存在且未过期（1天内），直接使用
+                                if temp_file_path.exists():
+                                    file_stat = temp_file_path.stat()
+                                    file_age = datetime.now(
+                                        timezone.utc
+                                    ) - datetime.fromtimestamp(
+                                        file_stat.st_mtime, tz=timezone.utc
                                     )
-
-                                # 如果生成成功，注册临时文件并保存到storage_service
-                                if (
-                                    temp_file_path.exists()
-                                    and temp_file_path.stat().st_size > 0
-                                ):
-                                    file_path = str(temp_file_path)
-                                    # 注册临时文件，用于后续清理
-                                    cleanup_service.register_temp_file(file_path)
-
-                                    # 尝试保存到storage_service（使用policy的task_id，确保文件路径正确）
-                                    try:
-                                        storage_result = (
-                                            storage_service.save_policy_file(
-                                                policy.id,
-                                                file_type,
-                                                file_path,
-                                                task_id=policy.task_id,
-                                            )
+                                    if file_age < timedelta(hours=24):
+                                        file_path = str(temp_file_path)
+                                        logger.debug(
+                                            f"使用已存在的临时文件: {file_path}"
                                         )
-                                        if storage_result.get("success"):
-                                            # 如果保存成功，使用正式存储路径
-                                            file_path = storage_result.get("local_path")
-                                            logger.debug(
-                                                f"文件已保存到存储服务: {file_path}"
-                                            )
-                                    except Exception as e:
-                                        logger.warning(f"保存文件到存储服务失败: {e}")
-
-                                    logger.info(
-                                        f"成功重新生成政策 {policy.id} 的 {file_type} 文件"
-                                    )
+                                    else:
+                                        # 删除过期文件
+                                        temp_file_path.unlink()
                                 else:
-                                    logger.warning(
-                                        f"重新生成政策 {policy.id} 的 {file_type} 文件失败"
-                                    )
-                                    continue
-                        except Exception as e:
-                            logger.error(
-                                f"重新生成政策 {policy.id} 的 {file_type} 文件时出错: {e}"
-                            )
-                            continue
+                                    # 根据文件类型生成文件
+                                    if file_type == "markdown":
+                                        # 生成Markdown文件
+                                        md_content = _generate_markdown_from_policy(
+                                            policy
+                                        )
+                                        with open(
+                                            temp_file_path, "w", encoding="utf-8"
+                                        ) as f:
+                                            f.write(md_content)
+                                    elif file_type == "docx":
+                                        # 生成DOCX文件
+                                        _generate_docx_from_policy(
+                                            policy, str(temp_file_path), converter
+                                        )
 
-                    if file_path and os.path.exists(file_path):
-                        # 构造ZIP内的文件路径
-                        # 格式: 任务名称/文件格式/政策ID_标题.扩展名
-                        # 将文件类型转换为实际扩展名
-                        file_ext = "md" if file_type == "markdown" else file_type
-                        zip_path = f"{task.task_name}/{file_type}/{policy.id}_{safe_title}.{file_ext}"
+                                    # 如果生成成功，注册临时文件并保存到storage_service
+                                    if (
+                                        temp_file_path.exists()
+                                        and temp_file_path.stat().st_size > 0
+                                    ):
+                                        file_path = str(temp_file_path)
+                                        # 注册临时文件，用于后续清理
+                                        cleanup_service.register_temp_file(file_path)
 
-                        # 添加到ZIP文件 - 优化文件读取
-                        try:
-                            # 使用二进制模式读取文件
-                            with open(file_path, "rb") as f:
-                                file_data = f.read()
-                                zip_file.writestr(zip_path, file_data)
-                            file_count += 1
-                            logger.debug(
-                                f"添加文件到ZIP: {zip_path} ({len(file_data)} bytes)"
-                            )
-                        except Exception as e:
-                            logger.warning(f"读取文件失败 {file_path}: {e}")
-                            continue
+                                        # 尝试保存到storage_service（使用policy的task_id，确保文件路径正确）
+                                        try:
+                                            storage_result = (
+                                                storage_service.save_policy_file(
+                                                    policy.id,
+                                                    file_type,
+                                                    file_path,
+                                                    task_id=policy.task_id,
+                                                )
+                                            )
+                                            if storage_result.get("success"):
+                                                # 如果保存成功，使用正式存储路径
+                                                file_path = storage_result.get(
+                                                    "local_path"
+                                                )
+                                                logger.debug(
+                                                    f"文件已保存到存储服务: {file_path}"
+                                                )
+                                        except Exception as e:
+                                            logger.warning(
+                                                f"保存文件到存储服务失败: {e}"
+                                            )
 
-                        # 每处理10个政策记录一次进度
-                        if i % 10 == 0 or i == total_policies:
-                            logger.info(
-                                f"已处理 {i}/{total_policies} 个政策，当前文件数: {file_count}"
-                            )
+                                        logger.info(
+                                            f"成功重新生成政策 {policy.id} 的 {file_type} 文件"
+                                        )
+                                    else:
+                                        logger.warning(
+                                            f"重新生成政策 {policy.id} 的 {file_type} 文件失败"
+                                        )
+                                        continue
+                            except Exception as e:
+                                logger.error(
+                                    f"重新生成政策 {policy.id} 的 {file_type} 文件时出错: {e}"
+                                )
+                                continue
+
+                        if file_path and os.path.exists(file_path):
+                            # 构造ZIP内的文件路径
+                            # 格式: 任务名称/文件格式/政策ID_标题.扩展名
+                            # 将文件类型转换为实际扩展名
+                            file_ext = "md" if file_type == "markdown" else file_type
+                            zip_path = f"{task.task_name}/{file_type}/{policy.id}_{safe_title}.{file_ext}"
+
+                            # 添加到ZIP文件 - 优化文件读取
+                            try:
+                                # 使用二进制模式读取文件
+                                with open(file_path, "rb") as f:
+                                    file_data = f.read()
+                                    zip_file.writestr(zip_path, file_data)
+                                file_count += 1
+                                logger.debug(
+                                    f"添加文件到ZIP: {zip_path} ({len(file_data)} bytes)"
+                                )
+                            except Exception as e:
+                                logger.warning(f"读取文件失败 {file_path}: {e}")
+                                continue
+
+                    # 每处理10个政策记录一次进度（按政策维度，非按单个文件）
+                    if i % 10 == 0 or i == total_policies:
+                        logger.info(
+                            f"已处理 {i}/{total_policies} 个政策，当前文件数: {file_count}"
+                        )
 
                 if file_count == 0:
                     raise HTTPException(
@@ -713,7 +736,6 @@ def download_task_attachments(
         # 创建临时ZIP文件路径
         import tempfile
         import zipfile
-        import io
 
         temp_zip_fd, temp_zip_path = tempfile.mkstemp(suffix=".zip")
         os.close(temp_zip_fd)
@@ -721,6 +743,7 @@ def download_task_attachments(
         try:
             with zipfile.ZipFile(temp_zip_path, "w", zipfile.ZIP_DEFLATED) as zip_file:
                 files_added = 0
+                used_arcnames = set()
 
                 for attachment in attachments:
                     file_path = None
@@ -744,7 +767,8 @@ def download_task_attachments(
                         if policy:
                             # 使用政策标题作为文件夹名
                             policy_title = (
-                                policy.title.replace("/", "_")
+                                (policy.title or "")
+                                .replace("/", "_")
                                 .replace("\\", "_")
                                 .replace(":", "_")
                             )
@@ -754,53 +778,75 @@ def download_task_attachments(
                                 if c.isalnum()
                                 or c in (" ", "-", "_", "(", ")", "（", "）")
                             )[:100]
+                            base_file = attachment.file_name or f"file_{attachment.id}"
                             # 在zip中组织文件夹结构：政策标题/附件文件名
-                            arcname = f"{safe_title}/{attachment.file_name}"
+                            arcname = f"{safe_title}/{base_file}"
                         else:
-                            arcname = attachment.file_name
+                            arcname = attachment.file_name or f"file_{attachment.id}"
 
-                        # 确保文件名不重复
-                        if files_added > 0:
-                            base, ext = os.path.splitext(arcname)
-                            arcname = f"{base}_{files_added + 1}{ext}"
+                        unique_arcname = allocate_unique_zip_arcname(
+                            used_arcnames, arcname
+                        )
 
-                        zip_file.write(file_path, arcname)
+                        zip_file.write(file_path, unique_arcname)
                         files_added += 1
-                        logger.debug(f"添加附件到zip: {arcname}")
+                        logger.debug(f"添加附件到zip: {unique_arcname}")
                     else:
                         logger.warning(f"附件文件不存在: {attachment.file_name}")
 
-            if files_added == 0:
-                raise HTTPException(status_code=404, detail="没有可用的附件文件")
+                if files_added == 0:
+                    raise HTTPException(
+                        status_code=404, detail="没有可用的附件文件"
+                    )
 
-            # 读取ZIP文件内容
-            with open(temp_zip_path, "rb") as f:
-                zip_content = f.read()
+        except Exception as zip_error:
+            try:
+                if "temp_zip_path" in locals() and os.path.exists(temp_zip_path):
+                    os.unlink(temp_zip_path)
+                    logger.debug(f"已清理临时ZIP文件: {temp_zip_path}")
+            except Exception as cleanup_error:
+                logger.warning(f"清理临时ZIP文件失败: {cleanup_error}")
+            raise zip_error
 
-            # 生成文件名
-            safe_task_name = "".join(
-                c for c in task.task_name if c.isalnum() or c in (" ", "-", "_")
-            )[:50]
-            zip_filename = f"{safe_task_name}_attachments_{task_id}.zip"
-
-            # 返回文件
-            from fastapi.responses import Response
-
-            return Response(
-                content=zip_content,
-                media_type="application/zip",
-                headers={
-                    "Content-Disposition": f'attachment; filename="{zip_filename}"',
-                },
+        final_size = os.path.getsize(temp_zip_path)
+        if final_size == 0:
+            try:
+                os.unlink(temp_zip_path)
+            except OSError as unlink_err:
+                logger.warning(f"删除空ZIP失败: {unlink_err}")
+            raise HTTPException(
+                status_code=500,
+                detail="附件打包失败，生成的文件大小为0字节。",
             )
 
-        finally:
-            # 清理临时文件
+        safe_task_name = "".join(
+            c for c in (task.task_name or "task") if c.isalnum() or c in (" ", "-", "_")
+        )[:50]
+        zip_filename = f"{safe_task_name}_attachments_{task_id}.zip"
+
+        def file_generator():
             try:
-                if os.path.exists(temp_zip_path):
-                    os.remove(temp_zip_path)
-            except Exception as e:
-                logger.warning(f"清理临时ZIP文件失败: {e}")
+                with open(temp_zip_path, "rb") as f:
+                    while chunk := f.read(8192):
+                        yield chunk
+            finally:
+                try:
+                    os.unlink(temp_zip_path)
+                    logger.debug(f"已删除临时ZIP文件: {temp_zip_path}")
+                except Exception as e:
+                    logger.warning(f"删除临时ZIP文件失败: {e}")
+
+        return StreamingResponse(
+            file_generator(),
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": (
+                    'attachment; filename="attachments.zip"; '
+                    f"filename*=UTF-8''{quote(zip_filename)}"
+                ),
+                "Content-Length": str(final_size),
+            },
+        )
 
     except HTTPException:
         raise

@@ -302,6 +302,7 @@ class PolicyService:
             query = query.filter(PolicyModel.publisher == publisher)
         if source_name:
             query = query.filter(PolicyModel.source_name == source_name)
+        # 仅包含 pub_date 非空的记录；无发布日期的政策不满足「在区间内」，故不会出现在结果中
         if start_date:
             query = query.filter(PolicyModel.pub_date >= start_date)
         if end_date:

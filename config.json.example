@@ -4,7 +4,13 @@
       "name": "政府信息公开平台",
       "base_url": "https://gi.mnr.gov.cn/",
       "search_api": "https://search.mnr.gov.cn/was5/web/search",
-      "ajax_api": "https://search.mnr.gov.cn/was/ajaxdata_jsonp.jsp",
+      "ajax_api": "https://search.mnr.gov.cn/was5/web/ajaxdata.jsp",
+      "search_portal_url": "https://search.mnr.gov.cn/g2018/",
+      "mnr_crawl_mode": "gi_article",
+      "gi_article_seed_urls": [
+        "https://gi.mnr.gov.cn/202603/t20260327_2917437.html"
+      ],
+      "gi_list_index_file": "index_4724.html",
       "channel_id": "216640",
       "enabled": true
     },
@@ -12,21 +18,33 @@
       "name": "政策法规库",
       "base_url": "https://f.mnr.gov.cn/",
       "search_api": "https://search.mnr.gov.cn/was5/web/search",
-      "ajax_api": "https://search.mnr.gov.cn/was/ajaxdata_jsonp.jsp",
+      "ajax_api": "https://search.mnr.gov.cn/was5/web/ajaxdata.jsp",
+      "search_portal_url": "https://search.mnr.gov.cn/g2018/",
+      "mnr_crawl_mode": "gi_article",
+      "gi_article_seed_urls": [
+        "https://f.mnr.gov.cn/index_3553.html"
+      ],
       "channel_id": "174757",
       "enabled": false
     }
   ],
   "base_url": "https://gi.mnr.gov.cn/",
   "search_api": "https://search.mnr.gov.cn/was5/web/search",
-  "ajax_api": "https://search.mnr.gov.cn/was/ajaxdata_jsonp.jsp",
+  "ajax_api": "https://search.mnr.gov.cn/was5/web/ajaxdata.jsp",
+  "search_portal_url": "https://search.mnr.gov.cn/g2018/",
+  "mnr_crawl_mode": "gi_article",
+  "gi_article_seed_urls": [
+    "https://gi.mnr.gov.cn/202603/t20260327_2917437.html"
+  ],
+  "gi_list_index_file": "index_4724.html",
   "channel_id": "216640",
   "request_delay": 2,
   "retry_delay": 5,
   "max_retries": 3,
   "rate_limit_delay": 30,
   "session_rotate_interval": 50,
-  "timeout": 30,
+  "connect_timeout": 15,
+  "timeout": 90,
   "page_size": 20,
   "perpage": 20,
   "max_pages": 999999,

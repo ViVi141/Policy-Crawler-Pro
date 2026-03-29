@@ -35,7 +35,7 @@
 
         <el-descriptions :column="2" border class="policy-meta">
           <el-descriptions-item label="分类">{{ policy.category === '全部' ? policy.source_name : `${policy.source_name}-${policy.category}` }}</el-descriptions-item>
-          <el-descriptions-item label="发布机构">{{ policy.publisher || policy.lawLevel || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="发布机构">{{ policy.publisher || '-' }}</el-descriptions-item>
           <el-descriptions-item label="发布日期">
             {{ formatDate(policy.publishDate || '') }}
           </el-descriptions-item>

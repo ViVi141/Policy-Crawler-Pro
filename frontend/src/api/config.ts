@@ -66,6 +66,7 @@ export const configApi = {
     base_url?: string
     search_api?: string
     ajax_api?: string
+    search_portal_url?: string
     channel_id?: string
     enabled: boolean
     // GD数据源特有字段

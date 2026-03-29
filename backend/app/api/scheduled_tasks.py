@@ -61,6 +61,8 @@ def create_scheduled_task(
             is_enabled=task_data.is_enabled,
         )
         return ScheduledTaskResponse.model_validate(task)
+    except HTTPException:
+        raise
     except ValueError as e:
         logger.warning(f"创建定时任务验证失败: {e}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -177,6 +179,8 @@ def update_scheduled_task(
             is_enabled=task_data.is_enabled,
         )
         return ScheduledTaskResponse.model_validate(task)
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -199,6 +203,8 @@ def enable_scheduled_task(
         scheduler_service = get_scheduler_service()
         task = scheduler_service.enable_scheduled_task(db, task_id)
         return ScheduledTaskResponse.model_validate(task)
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -217,6 +223,8 @@ def disable_scheduled_task(
         scheduler_service = get_scheduler_service()
         task = scheduler_service.disable_scheduled_task(db, task_id)
         return ScheduledTaskResponse.model_validate(task)
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:

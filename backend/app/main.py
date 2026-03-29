@@ -24,6 +24,7 @@ from contextlib import asynccontextmanager
 from .config import settings
 from .database import engine, Base
 from .api import auth, policies, tasks, scheduled_tasks, config, backups
+from sqlalchemy.exc import OperationalError
 
 # 配置日志
 logging.basicConfig(
@@ -32,6 +33,22 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _is_database_unreachable(exc: BaseException) -> bool:
+    """判断是否为「数据库进程未启动 / 网络不可达」等连接类错误。"""
+    if isinstance(exc, OperationalError):
+        return True
+    msg = str(exc).lower()
+    if "connection refused" in msg:
+        return True
+    if "could not connect" in msg:
+        return True
+    if "could not translate host name" in msg:
+        return True
+    if "name or service not known" in msg:
+        return True
+    return False
 
 
 @asynccontextmanager
@@ -80,8 +97,15 @@ async def lifespan(app: FastAPI):
                 f"数据库表/类型已存在，跳过创建（这是正常的，特别是在多worker环境下）"
             )
         else:
-            logger.error(f"数据库表检查失败: {e}")
-            logger.exception(e)
+            if _is_database_unreachable(e):
+                logger.warning(
+                    "数据库表检查跳过：无法连接 PostgreSQL。"
+                    "请启动数据库并核对 DATABASE_URL；"
+                    "使用 Docker 时可执行: docker compose up -d db"
+                )
+            else:
+                logger.error(f"数据库表检查失败: {e}")
+                logger.exception(e)
 
     # 创建默认用户（如果不存在）
     # 使用数据库锁和错误处理来防止并发创建
@@ -129,8 +153,14 @@ async def lifespan(app: FastAPI):
             error_msg = str(db_error).lower()
             if "duplicate key" in error_msg or "already exists" in error_msg:
                 logger.info("默认用户已存在，跳过创建（并发创建检测）")
+            elif _is_database_unreachable(db_error):
+                logger.warning(
+                    "跳过创建默认用户：数据库不可用（启动数据库后重启应用即可）"
+                )
             else:
-                logger.warning(f"创建默认用户时出现错误（可忽略）: {db_error}")
+                logger.warning(
+                    f"创建默认用户时出现错误（可忽略）: {db_error}"
+                )
         finally:
             db.close()
     except Exception as e:
@@ -206,6 +236,10 @@ async def lifespan(app: FastAPI):
             error_msg = str(config_error).lower()
             if "duplicate key" in error_msg or "already exists" in error_msg:
                 logger.info("默认配置已存在，跳过初始化")
+            elif _is_database_unreachable(config_error):
+                logger.warning(
+                    "跳过初始化默认配置：数据库不可用（启动数据库后重启应用即可）"
+                )
             else:
                 logger.warning(f"初始化默认配置失败（可忽略）: {config_error}")
         finally:
@@ -335,9 +369,30 @@ async def root():
 
 
 @app.get("/api/health")
-async def health_check():
-    """健康检查"""
-    return {"status": "healthy"}
+def health_check():
+    """健康检查：进程存活且能连通 PostgreSQL 时返回 200，否则 503。"""
+    from sqlalchemy import text
+
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return {"status": "healthy", "database": "connected"}
+    except OperationalError as e:
+        logger.warning("健康检查：数据库不可用 — %s", e)
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unhealthy",
+                "database": "disconnected",
+                "detail": "无法连接 PostgreSQL，请确认服务已启动且 DATABASE_URL 正确",
+            },
+        )
+    except Exception as e:
+        logger.error("健康检查失败: %s", e, exc_info=True)
+        return JSONResponse(
+            status_code=503,
+            content={"status": "error", "detail": str(e)},
+        )
 
 
 if __name__ == "__main__":

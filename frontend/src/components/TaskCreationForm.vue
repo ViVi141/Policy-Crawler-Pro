@@ -438,6 +438,7 @@ const loadDataSources = async () => {
       base_url: ds.base_url,
       search_api: ds.search_api,
       ajax_api: ds.ajax_api,
+      search_portal_url: ds.search_portal_url,
       channel_id: ds.channel_id,
       enabled: ds.enabled ?? false,
       // GD数据源特有字段
@@ -465,7 +466,8 @@ const loadDataSources = async () => {
         name: '政府信息公开平台',
         base_url: 'https://gi.mnr.gov.cn/',
         search_api: 'https://search.mnr.gov.cn/was5/web/search',
-        ajax_api: 'https://search.mnr.gov.cn/was/ajaxdata_jsonp.jsp',
+        ajax_api: 'https://search.mnr.gov.cn/was5/web/ajaxdata.jsp',
+        search_portal_url: 'https://search.mnr.gov.cn/g2018/',
         channel_id: '216640',
         enabled: true,
       },
@@ -473,7 +475,8 @@ const loadDataSources = async () => {
         name: '政策法规库',
         base_url: 'https://f.mnr.gov.cn/',
         search_api: 'https://search.mnr.gov.cn/was5/web/search',
-        ajax_api: 'https://search.mnr.gov.cn/was/ajaxdata_jsonp.jsp',
+        ajax_api: 'https://search.mnr.gov.cn/was5/web/ajaxdata.jsp',
+        search_portal_url: 'https://search.mnr.gov.cn/g2018/',
         channel_id: '174757',
         enabled: false,
       },
@@ -664,6 +667,7 @@ const handleSubmit = async () => {
                       base_url: source.base_url || '',
                       search_api: source.search_api || '',
                       ajax_api: source.ajax_api || source.search_api || '',
+                      search_portal_url: source.search_portal_url,
                       channel_id: source.channel_id || '',
                       enabled: true
                     }

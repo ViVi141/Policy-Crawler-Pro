@@ -69,6 +69,8 @@ def update_feature_flag(
                 logger.warning(f"通知邮件服务重新加载配置失败: {e}")
 
         return FeatureFlagsResponse(**flags)
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -189,6 +191,8 @@ def update_email_config(
             logger.warning(f"通知邮件服务重新加载配置失败: {e}")
 
         return EmailConfigResponse(**config)
+    except HTTPException:
+        raise
     except ValueError as e:
         # 验证错误（如缺少收件人地址）
         logger.warning(f"邮件配置验证失败: {e}")
@@ -253,7 +257,13 @@ def get_data_sources(
                 "name": "政府信息公开平台",
                 "base_url": "https://gi.mnr.gov.cn/",
                 "search_api": "https://search.mnr.gov.cn/was5/web/search",
-                "ajax_api": "https://search.mnr.gov.cn/was/ajaxdata_jsonp.jsp",
+                "ajax_api": "https://search.mnr.gov.cn/was5/web/ajaxdata.jsp",
+                "search_portal_url": "https://search.mnr.gov.cn/g2018/",
+                "mnr_crawl_mode": "gi_article",
+                "gi_article_seed_urls": [
+                    "https://gi.mnr.gov.cn/202603/t20260327_2917437.html"
+                ],
+                "gi_list_index_file": "index_4724.html",
                 "channel_id": "216640",
                 "enabled": True,
             },
@@ -261,7 +271,12 @@ def get_data_sources(
                 "name": "政策法规库",
                 "base_url": "https://f.mnr.gov.cn/",
                 "search_api": "https://search.mnr.gov.cn/was5/web/search",
-                "ajax_api": "https://search.mnr.gov.cn/was/ajaxdata_jsonp.jsp",
+                "ajax_api": "https://search.mnr.gov.cn/was5/web/ajaxdata.jsp",
+                "search_portal_url": "https://search.mnr.gov.cn/g2018/",
+                "mnr_crawl_mode": "gi_article",
+                "gi_article_seed_urls": [
+                    "https://f.mnr.gov.cn/index_3553.html"
+                ],
                 "channel_id": "174757",
                 "enabled": False,
             },
@@ -352,6 +367,8 @@ def update_crawler_config(
         config_dict = update.model_dump(exclude_unset=True)
         config = config_service.update_crawler_config(db, config_dict)
         return CrawlerConfigResponse(**config)
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

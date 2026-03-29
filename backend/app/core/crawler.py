@@ -396,13 +396,14 @@ class PolicyCrawler:
                     if len(rows) < 2:
                         continue
 
-                    # 初始化变量
+                    # 初始化变量（与官网字段一致：发布机构、效力级别、时效状态等分开）
                     title = ""
                     doc_number = ""
                     pub_date = ""
                     detail_url = ""
-                    level = "自然资源部"  # 默认值
-                    validity = ""  # 默认值
+                    publisher = ""
+                    level = ""
+                    validity = ""
 
                     # 遍历表格的每一行
                     for row in rows:
@@ -461,12 +462,19 @@ class PolicyCrawler:
                             # 如果没有发布日期，使用实施日期
                             if not pub_date:
                                 pub_date = value
-                        elif "发布机构" in label or "机构" in label:
-                            # 提取发布机构
+                        elif "发布机构" in label or (
+                            "机构" in label and "发布" in label
+                        ):
+                            if value and value.strip():
+                                publisher = value
+                        elif "效力级别" in label or (
+                            "级别" in label and "效力" in label
+                        ):
                             if value and value.strip():
                                 level = value
-                        elif "效力级别" in label or "级别" in label:
-                            # 提取效力级别
+                        elif "时效状态" in label or (
+                            "时效" in label and "状态" in label
+                        ):
                             if value and value.strip():
                                 validity = value
 
@@ -511,6 +519,7 @@ class PolicyCrawler:
                         category=category_name,
                         level=level,
                         validity=validity,
+                        publisher=publisher,
                         crawl_time=datetime.now(timezone.utc).strftime(
                             "%Y-%m-%d %H:%M:%S"
                         ),
@@ -571,6 +580,19 @@ class PolicyCrawler:
                     "base_url": self.config.get("base_url", "https://gi.mnr.gov.cn/"),
                     "search_api": self.config.get(
                         "search_api", "https://search.mnr.gov.cn/was5/web/search"
+                    ),
+                    "search_portal_url": self.config.get(
+                        "search_portal_url", "https://search.mnr.gov.cn/g2018/"
+                    ),
+                    "mnr_crawl_mode": self.config.get("mnr_crawl_mode", "gi_article"),
+                    "gi_article_seed_urls": self.config.get(
+                        "gi_article_seed_urls",
+                        [
+                            "https://gi.mnr.gov.cn/202603/t20260327_2917437.html"
+                        ],
+                    ),
+                    "gi_list_index_file": self.config.get(
+                        "gi_list_index_file", "index_4724.html"
                     ),
                     "channel_id": self.config.get("channel_id", "216640"),
                     "enabled": True,
@@ -705,6 +727,47 @@ class PolicyCrawler:
                 temp_config.config["channel_id"] = data_source.get(
                     "channel_id", "216640"
                 )
+                if "search_portal_url" in data_source:
+                    temp_config.config["search_portal_url"] = data_source.get(
+                        "search_portal_url"
+                    )
+                else:
+                    temp_config.config["search_portal_url"] = self.config.get(
+                        "search_portal_url", "https://search.mnr.gov.cn/g2018/"
+                    )
+
+                if "mnr_crawl_mode" in data_source:
+                    temp_config.config["mnr_crawl_mode"] = data_source.get(
+                        "mnr_crawl_mode"
+                    )
+                else:
+                    temp_config.config["mnr_crawl_mode"] = self.config.get(
+                        "mnr_crawl_mode", "gi_article"
+                    )
+                if "gi_article_seed_urls" in data_source:
+                    temp_config.config["gi_article_seed_urls"] = data_source.get(
+                        "gi_article_seed_urls"
+                    )
+                else:
+                    bu_lower = (data_source.get("base_url") or "").lower()
+                    if "f.mnr.gov.cn" in bu_lower:
+                        default_seeds = ["https://f.mnr.gov.cn/index_3553.html"]
+                    else:
+                        default_seeds = [
+                            "https://gi.mnr.gov.cn/202603/t20260327_2917437.html"
+                        ]
+                    temp_config.config["gi_article_seed_urls"] = self.config.get(
+                        "gi_article_seed_urls",
+                        default_seeds,
+                    )
+                if "gi_list_index_file" in data_source:
+                    temp_config.config["gi_list_index_file"] = data_source.get(
+                        "gi_list_index_file"
+                    )
+                else:
+                    temp_config.config["gi_list_index_file"] = self.config.get(
+                        "gi_list_index_file", "index_4724.html"
+                    )
 
                 # 确保代理配置被正确传递（从主配置继承）
                 temp_config.config["use_proxy"] = self.config.get("use_proxy", False)
@@ -1133,12 +1196,10 @@ class PolicyCrawler:
                         if metadata.get("doc_number") and not policy.doc_number:
                             policy.doc_number = metadata["doc_number"]
 
-                # 后备逻辑：根据文号推断发布机构和效力级别
+                # 后备逻辑：根据文号推断发布机构（不写入效力级别 level，避免与官网「效力级别」混淆）
                 if policy.doc_number and not policy.publisher:
                     if policy.doc_number.startswith("自然资发"):
                         policy.publisher = "自然资源部"
-                        if not policy.level:
-                            policy.level = "自然资源部"
                         logger.debug(
                             f"根据文号推断发布机构: {policy.doc_number} -> 自然资源部"
                         )
@@ -1146,8 +1207,6 @@ class PolicyCrawler:
                         "国土资发"
                     ) or policy.doc_number.startswith("国土调查办发"):
                         policy.publisher = "国土资源部"
-                        if not policy.level:
-                            policy.level = "国土资源部"
                         logger.debug(
                             f"根据文号推断发布机构: {policy.doc_number} -> 国土资源部"
                         )
@@ -1269,6 +1328,7 @@ class PolicyCrawler:
             # YAML Front Matter
             md_lines.append("---")
             md_lines.append(f'title: "{policy.title}"')
+            md_lines.append(f'publisher: "{policy.publisher}"')
             md_lines.append(f'level: "{policy.level}"')
             md_lines.append(f'category: "{policy.category}"')
             md_lines.append(f'pub_date: "{policy.pub_date}"')
@@ -1287,14 +1347,16 @@ class PolicyCrawler:
 
             md_lines.append("## 基本信息")
             md_lines.append("")
-            md_lines.append(f"- **发布机构**: {policy.level}")
+            md_lines.append(f"- **发布机构**: {policy.publisher or '-'}")
             md_lines.append(f"- **发布日期**: {policy.pub_date}")
+            if policy.level:
+                md_lines.append(f"- **效力级别**: {policy.level}")
             if policy.doc_number:
                 md_lines.append(f"- **发文字号**: {policy.doc_number}")
             if policy.effective_date:
                 md_lines.append(f"- **生效日期**: {policy.effective_date}")
             if policy.validity:
-                md_lines.append(f"- **有效性**: {policy.validity}")
+                md_lines.append(f"- **有效性/时效状态**: {policy.validity}")
             if policy.category:
                 md_lines.append(f"- **分类**: {policy.category}")
             md_lines.append(f"- **来源链接**: [查看原文]({policy.source})")
@@ -1364,9 +1426,13 @@ class PolicyCrawler:
             doc.add_heading("基本信息", level=2)
             info_para = doc.add_paragraph()
             info_para.add_run("发布机构: ").bold = True
-            info_para.add_run(policy.level)
+            info_para.add_run(policy.publisher or "-")
             info_para.add_run("\n发布日期: ").bold = True
             info_para.add_run(policy.pub_date)
+
+            if policy.level:
+                info_para.add_run("\n效力级别: ").bold = True
+                info_para.add_run(policy.level)
 
             if policy.doc_number:
                 info_para.add_run("\n发文字号: ").bold = True
@@ -1377,7 +1443,7 @@ class PolicyCrawler:
                 info_para.add_run(policy.effective_date)
 
             if policy.validity:
-                info_para.add_run("\n有效性: ").bold = True
+                info_para.add_run("\n有效性/时效状态: ").bold = True
                 info_para.add_run(policy.validity)
 
             if policy.category:

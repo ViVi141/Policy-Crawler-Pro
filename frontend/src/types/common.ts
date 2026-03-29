@@ -16,6 +16,8 @@ export interface DataSourceConfig {
   base_url?: string
   search_api?: string
   ajax_api?: string
+  /** 检索前访问的门户页（如 g2018），用于 Cookie / Referer；列表接口仍为 was5/web/search */
+  search_portal_url?: string
   channel_id?: string
   enabled: boolean
   // 广东省法规数据源特有字段

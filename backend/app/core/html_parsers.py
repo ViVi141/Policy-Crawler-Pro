@@ -401,7 +401,7 @@ class GIMNRParser(BaseHTMLParser):
                             pub_date_formatted = pub_date.strip()
 
                     policy = {
-                        "level": self.level,
+                        "level": "",
                         "title": self._clean_text(title),
                         "pub_date": pub_date_formatted,
                         "doc_number": self._clean_text(doc_number),
@@ -498,11 +498,13 @@ class FMNRParser(BaseHTMLParser):
                     if len(rows) < 2:
                         continue
 
-                    # 初始化变量
+                    # 初始化变量（列表页字段与详情页语义对齐）
                     title = ""
                     doc_number = ""
                     pub_date = ""
                     detail_url = ""
+                    publisher = ""
+                    level = ""
                     validity = ""
 
                     # 遍历表格的每一行
@@ -550,8 +552,21 @@ class FMNRParser(BaseHTMLParser):
                         elif "实施日期" in label or "生效日期" in label:
                             if not pub_date:
                                 pub_date = value
-                        elif "效力级别" in label or "级别" in label:
-                            validity = value
+                        elif "发布机构" in label or (
+                            "机构" in label and "发布" in label
+                        ):
+                            if value and value.strip():
+                                publisher = value
+                        elif "效力级别" in label or (
+                            "级别" in label and "效力" in label
+                        ):
+                            if value and value.strip():
+                                level = value
+                        elif "时效状态" in label or (
+                            "时效" in label and "状态" in label
+                        ):
+                            if value and value.strip():
+                                validity = value
 
                     # 如果标题为空，尝试从表格中查找所有链接
                     if not title:
@@ -582,7 +597,7 @@ class FMNRParser(BaseHTMLParser):
                             pub_date_formatted = pub_date.strip()
 
                     policy = {
-                        "level": self.level,
+                        "level": level,
                         "title": self._clean_text(title),
                         "pub_date": pub_date_formatted,
                         "doc_number": self._clean_text(doc_number),
@@ -596,7 +611,7 @@ class FMNRParser(BaseHTMLParser):
                         "category": category_name,
                         "validity": self._clean_text(validity),
                         "effective_date": "",
-                        "publisher": "",  # 发布机构，从详情页提取
+                        "publisher": publisher,
                     }
 
                     policies.append(policy)

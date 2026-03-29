@@ -34,6 +34,7 @@ except (ImportError, AttributeError):
     pass
 
 from .config import Config
+from .http_timeout import request_timeout_tuple
 
 # 使用模块级logger
 logger = logging.getLogger(__name__)
@@ -218,6 +219,7 @@ class GDAPIClient:
 
         self._check_and_rotate_session()
 
+        req_timeout = request_timeout_tuple(self.config)
         for retry in range(self.config.get("max_retries", 3)):
             try:
                 proxies = self._get_proxy(force_new=(retry > 0))
@@ -225,7 +227,7 @@ class GDAPIClient:
                     url,
                     json=params,
                     headers=headers,
-                    timeout=self.config.get("timeout", 30),
+                    timeout=req_timeout,
                     proxies=proxies,
                 )
                 response.raise_for_status()
@@ -288,13 +290,14 @@ class GDAPIClient:
 
         self._check_and_rotate_session()
 
+        req_timeout = request_timeout_tuple(self.config)
         for retry in range(self.config.get("max_retries", 3)):
             try:
                 proxies = self._get_proxy(force_new=(retry > 0))
                 response = self.session.post(
                     url,
                     data=data,
-                    timeout=self.config.get("timeout", 30),
+                    timeout=req_timeout,
                     proxies=proxies,
                 )
                 response.raise_for_status()

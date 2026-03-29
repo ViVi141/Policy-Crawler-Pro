@@ -18,7 +18,13 @@ class Config:
                 "name": "政府信息公开平台",
                 "base_url": "https://gi.mnr.gov.cn/",
                 "search_api": "https://search.mnr.gov.cn/was5/web/search",
-                "ajax_api": "https://search.mnr.gov.cn/was/ajaxdata_jsonp.jsp",
+                "ajax_api": "https://search.mnr.gov.cn/was5/web/ajaxdata.jsp",
+                "search_portal_url": "https://search.mnr.gov.cn/g2018/",
+                "mnr_crawl_mode": "gi_article",
+                "gi_article_seed_urls": [
+                    "https://gi.mnr.gov.cn/202603/t20260327_2917437.html"
+                ],
+                "gi_list_index_file": "index_4724.html",
                 "channel_id": "216640",
                 "enabled": True,
             },
@@ -26,7 +32,12 @@ class Config:
                 "name": "政策法规库",
                 "base_url": "https://f.mnr.gov.cn/",
                 "search_api": "https://search.mnr.gov.cn/was5/web/search",
-                "ajax_api": "https://search.mnr.gov.cn/was/ajaxdata_jsonp.jsp",
+                "ajax_api": "https://search.mnr.gov.cn/was5/web/ajaxdata.jsp",
+                "search_portal_url": "https://search.mnr.gov.cn/g2018/",
+                "mnr_crawl_mode": "gi_article",
+                "gi_article_seed_urls": [
+                    "https://f.mnr.gov.cn/index_3553.html"
+                ],
                 "channel_id": "174757",
                 "enabled": False,
             },
@@ -41,7 +52,13 @@ class Config:
         # 兼容旧配置（向后兼容，默认使用政府信息公开平台）
         "base_url": "https://gi.mnr.gov.cn/",
         "search_api": "https://search.mnr.gov.cn/was5/web/search",
-        "ajax_api": "https://search.mnr.gov.cn/was/ajaxdata_jsonp.jsp",
+        "ajax_api": "https://search.mnr.gov.cn/was5/web/ajaxdata.jsp",
+        "search_portal_url": "https://search.mnr.gov.cn/g2018/",
+        "mnr_crawl_mode": "gi_article",
+        "gi_article_seed_urls": [
+            "https://gi.mnr.gov.cn/202603/t20260327_2917437.html"
+        ],
+        "gi_list_index_file": "index_4724.html",
         "channel_id": "216640",  # 政府信息公开平台的频道ID
         # 请求配置
         "request_delay": 0.5,  # 爬取延迟（秒），默认0.5秒
@@ -49,7 +66,9 @@ class Config:
         "max_retries": 3,
         "rate_limit_delay": 30,
         "session_rotate_interval": 50,
-        "timeout": 30,
+        # 政务搜索接口常较慢：读取超时默认 90s；连接阶段单独限制避免长时间卡在握手
+        "connect_timeout": 15,
+        "timeout": 90,
         # 政策重试配置
         "max_policy_retries": 0,  # 政策爬取失败时的最大重试次数（0表示不重试）
         "policy_retry_delay": 5,  # 政策重试前的等待时间（秒）
@@ -72,7 +91,8 @@ class Config:
         # 文件下载配置
         "download_docx": True,
         "download_doc": True,
-        "download_pdf": False,
+        # 政务站点附件多为 PDF；默认关闭会导致仅 PDF 的页面无法下载与合并正文
+        "download_pdf": True,
         "download_all_files": False,  # 下载所有形式的附件（忽略文件类型）
         # 代理配置
         "use_proxy": False,

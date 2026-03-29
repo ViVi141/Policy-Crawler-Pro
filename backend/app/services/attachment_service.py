@@ -22,7 +22,11 @@ class AttachmentService:
         self.document_converter = DocumentConverter()
 
     def extract_attachment_content(
-        self, policy_id: int, attachment_filename: str, task_id: Optional[int] = None
+        self,
+        policy_id: int,
+        attachment_filename: str,
+        task_id: Optional[int] = None,
+        prefer_local_path: Optional[str] = None,
     ) -> Optional[str]:
         """
         从附件文件中提取文本内容
@@ -31,15 +35,20 @@ class AttachmentService:
             policy_id: 政策ID
             attachment_filename: 附件文件名
             task_id: 任务ID（可选，用于路径构造）
+            prefer_local_path: 优先使用的本地绝对路径（如爬虫写入的 output_dir/files/…），
+                与存储服务标准目录 policies/…/attachments/ 不一致时必须传入，否则合并会找不到文件。
 
         Returns:
             提取的文本内容，如果提取失败则返回None
         """
         try:
-            # 获取附件文件路径
-            file_path = self.storage_service.get_attachment_file_path(
-                policy_id, attachment_filename, task_id
-            )
+            file_path = None
+            if prefer_local_path and os.path.isfile(prefer_local_path):
+                file_path = prefer_local_path
+            if not file_path:
+                file_path = self.storage_service.get_attachment_file_path(
+                    policy_id, attachment_filename, task_id
+                )
 
             if not file_path or not os.path.exists(file_path):
                 logger.warning(f"附件文件不存在: {file_path}")
@@ -134,9 +143,12 @@ class AttachmentService:
 
                 for attachment in attachments:
                     try:
-                        # 提取附件内容
+                        # 提取附件内容（优先使用数据库中的 file_path，兼容爬虫目录 crawled_data/files）
                         content = self.extract_attachment_content(
-                            policy_id, attachment.file_name, task_id
+                            policy_id,
+                            attachment.file_name,
+                            task_id,
+                            prefer_local_path=attachment.file_path,
                         )
 
                         if content:

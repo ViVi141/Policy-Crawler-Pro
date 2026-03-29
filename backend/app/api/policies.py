@@ -7,6 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 import logging
 import os
+import tempfile
+from urllib.parse import quote
 
 from ..database import get_db
 from ..middleware.auth import get_current_user
@@ -20,6 +22,7 @@ from ..schemas.policy import (
 )
 from ..services.policy_service import PolicyService
 from ..services.search_service import SearchService
+from ..utils.zip_arcname import allocate_unique_zip_arcname
 
 router = APIRouter(prefix="/policies", tags=["policies"])
 policy_service = PolicyService()
@@ -412,6 +415,8 @@ def get_policy_file(
                 logger.info(f"成功重新生成政策 {policy_id} 的 {file_type} 文件")
             else:
                 raise HTTPException(status_code=404, detail="文件不存在且无法重新生成")
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"重新生成政策 {policy_id} 的 {file_type} 文件失败: {e}")
             raise HTTPException(
@@ -488,8 +493,11 @@ def download_attachment(
     # 返回文件
     from fastapi.responses import FileResponse
 
+    download_name = attachment.file_name or f"attachment_{attachment_id}"
     return FileResponse(
-        file_path, media_type="application/octet-stream", filename=attachment.file_name
+        file_path,
+        media_type="application/octet-stream",
+        filename=download_name,
     )
 
 
@@ -517,7 +525,7 @@ async def download_attachments_batch(
             raise HTTPException(status_code=400, detail="必须指定至少一个附件ID")
 
         if not isinstance(attachment_ids, list) or not all(
-            isinstance(id, int) for id in attachment_ids
+            isinstance(aid, int) for aid in attachment_ids
         ):
             raise HTTPException(status_code=400, detail="attachment_ids必须是整数列表")
 
@@ -552,21 +560,28 @@ async def download_attachments_batch(
             # 使用现有的单个下载逻辑
             return await download_attachment(policy_id, attachment.id, db, current_user)
 
-        # 生成zip压缩包
+        # 生成zip压缩包（临时文件 + 流式响应，避免大附件占用过多内存）
         import zipfile
-        import io
 
-        # 使用存储服务获取文件路径
         from ..services.storage_service import StorageService
+        from fastapi.responses import StreamingResponse
 
         storage_service = StorageService()
 
-        # 创建内存中的zip文件
-        zip_buffer = io.BytesIO()
+        temp_zip_fd, temp_zip_path = tempfile.mkstemp(suffix=".zip")
+        os.close(temp_zip_fd)
+
+        def _cleanup_temp_zip():
+            try:
+                if os.path.exists(temp_zip_path):
+                    os.unlink(temp_zip_path)
+            except OSError as err:
+                logger.warning(f"清理临时ZIP失败: {err}")
 
         try:
-            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            with zipfile.ZipFile(temp_zip_path, "w", zipfile.ZIP_DEFLATED) as zip_file:
                 files_added = 0
+                used_arcnames = set()
 
                 for attachment in attachments:
                     file_path = None
@@ -582,47 +597,62 @@ async def download_attachments_batch(
 
                     if file_path and os.path.exists(file_path):
                         # 添加到zip包中
-                        arcname = attachment.file_name
-                        # 确保文件名不重复
-                        if files_added > 0:
-                            base, ext = os.path.splitext(arcname)
-                            arcname = f"{base}_{files_added + 1}{ext}"
+                        base_name = attachment.file_name or f"file_{attachment.id}"
+                        unique_arcname = allocate_unique_zip_arcname(
+                            used_arcnames, base_name
+                        )
 
-                        zip_file.write(file_path, arcname)
+                        zip_file.write(file_path, unique_arcname)
                         files_added += 1
-                        logger.debug(f"添加文件到zip: {arcname}")
+                        logger.debug(f"添加文件到zip: {unique_arcname}")
                     else:
                         logger.warning(f"附件文件不存在: {attachment.file_name}")
 
             if files_added == 0:
                 raise HTTPException(status_code=404, detail="没有可下载的附件文件")
 
-            zip_buffer.seek(0)
-
-            # 生成zip文件名
-            safe_title = "".join(
-                c
-                for c in (policy.title or "政策附件")
-                if c.isalnum() or c in (" ", "-", "_")
-            ).strip()
-            if len(safe_title) > 30:
-                safe_title = safe_title[:30]
-            zip_filename = f"{safe_title}_附件_{len(attachments)}个.zip"
-
-            # 返回zip文件
-            from fastapi.responses import StreamingResponse
-
-            return StreamingResponse(
-                io.BytesIO(zip_buffer.getvalue()),
-                media_type="application/zip",
-                headers={
-                    "Content-Disposition": f"attachment; filename*=UTF-8''{zip_filename}"
-                },
-            )
-
+        except HTTPException:
+            _cleanup_temp_zip()
+            raise
         except Exception as e:
-            logger.error(f"生成附件压缩包失败: {e}")
+            _cleanup_temp_zip()
+            logger.error(f"生成附件压缩包失败: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail="生成压缩包失败")
+
+        final_size = os.path.getsize(temp_zip_path)
+        if final_size == 0:
+            _cleanup_temp_zip()
+            raise HTTPException(status_code=500, detail="压缩包生成异常（大小为0）")
+
+        # 生成zip文件名
+        safe_title = "".join(
+            c
+            for c in (policy.title or "政策附件")
+            if c.isalnum() or c in (" ", "-", "_")
+        ).strip()
+        if len(safe_title) > 30:
+            safe_title = safe_title[:30]
+        zip_filename = f"{safe_title}_附件_{len(attachments)}个.zip"
+
+        def file_generator():
+            try:
+                with open(temp_zip_path, "rb") as f:
+                    while chunk := f.read(8192):
+                        yield chunk
+            finally:
+                _cleanup_temp_zip()
+
+        return StreamingResponse(
+            file_generator(),
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": (
+                    'attachment; filename="attachments.zip"; '
+                    f"filename*=UTF-8''{quote(zip_filename)}"
+                ),
+                "Content-Length": str(final_size),
+            },
+        )
 
     except HTTPException:
         raise
@@ -697,7 +727,7 @@ async def merge_attachments_to_content(
             raise HTTPException(status_code=400, detail="必须指定至少一个附件ID")
 
         if not isinstance(attachment_ids, list) or not all(
-            isinstance(id, int) for id in attachment_ids
+            isinstance(aid, int) for aid in attachment_ids
         ):
             raise HTTPException(status_code=400, detail="attachment_ids必须是整数列表")
 

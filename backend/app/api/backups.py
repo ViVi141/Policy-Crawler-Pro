@@ -56,8 +56,8 @@ async def upload_backup(
 ):
     """上传备份文件并创建备份记录"""
     try:
-        # 验证文件类型
-        if not file.filename.lower().endswith(".sql"):
+        # 验证文件类型（filename 在部分客户端可能为空）
+        if not file.filename or not file.filename.lower().endswith(".sql"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="只支持 .sql 格式的备份文件",
@@ -164,6 +164,8 @@ def restore_backup(
             backup_id=backup_id, target_database=request.target_database
         )
         return BackupRestoreResponse(**result)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"恢复备份失败: {e}", exc_info=True)
         raise HTTPException(

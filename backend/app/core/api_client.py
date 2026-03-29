@@ -10,7 +10,7 @@ import json
 import logging
 import warnings
 import re
-from typing import Dict, Optional, Any, List
+from typing import Dict, Optional, Any, List, Tuple
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 
@@ -23,6 +23,7 @@ except (ImportError, AttributeError):
     pass
 
 from .config import Config
+from .http_timeout import request_timeout_tuple
 
 # 使用模块级logger
 logger = logging.getLogger(__name__)
@@ -54,6 +55,33 @@ class APIClient:
 
         # 初始化代理（如果启用）
         self._init_proxy()
+
+    def _warm_mnr_search_portal(
+        self,
+        portal_url: str,
+        referer_base: str,
+        proxies: Optional[Dict[str, str]],
+        req_timeout: Tuple[float, float],
+    ) -> None:
+        """先访问 g2018 等门户页以建立 Cookie，便于后续 was5 检索请求。
+
+        说明：search.mnr.gov.cn 上列表接口仍为 /was5/web/search；门户页仅作会话预热。
+        """
+        try:
+            warm_headers = {
+                "Referer": referer_base,
+                "Accept": (
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                ),
+            }
+            self.session.get(
+                portal_url,
+                timeout=req_timeout,
+                proxies=proxies,
+                headers=warm_headers,
+            )
+        except Exception as e:
+            logger.debug("search portal warm-up failed (ignored): %s", e)
 
     def _create_session(self) -> requests.Session:
         """创建新的会话"""
@@ -202,14 +230,23 @@ class APIClient:
             )
             channel_id = data_source.get("channel_id", "216640")
             base_url = data_source.get("base_url", "https://gi.mnr.gov.cn/")
-            # 更新Referer
-            self.session.headers.update({"Referer": base_url})
         else:
             search_api = self.config.get(
                 "search_api", "https://search.mnr.gov.cn/was5/web/search"
             )
             channel_id = self.config.get("channel_id", "216640")
             base_url = self.config.get("base_url", "https://gi.mnr.gov.cn/")
+
+        portal_url = ""
+        if data_source and "search_portal_url" in data_source:
+            portal_url = str(data_source.get("search_portal_url") or "").strip()
+        else:
+            portal_url = str(self.config.get("search_portal_url", "") or "").strip()
+
+        referer_for_search = base_url
+        if portal_url:
+            referer_for_search = portal_url
+        self.session.headers.update({"Referer": referer_for_search})
 
         perpage = self.config.get("perpage", 20)
 
@@ -234,7 +271,7 @@ class APIClient:
         self._check_and_rotate_session()
 
         max_retries = self.config.get("max_retries", 3)
-        timeout = self.config.get("timeout", 30)
+        req_timeout = request_timeout_tuple(self.config)
 
         for retry in range(max_retries):
             try:
@@ -247,8 +284,14 @@ class APIClient:
                         f"  参数: channelid={params.get('channelid')}, page={params.get('page')}, searchword={params.get('searchword')[:50] if params.get('searchword') else ''}"
                     )
 
+                if portal_url:
+                    self._warm_mnr_search_portal(
+                        portal_url, base_url, proxies, req_timeout
+                    )
+                    self.session.headers.update({"Referer": portal_url})
+
                 response = self.session.get(
-                    search_api, params=params, timeout=timeout, proxies=proxies
+                    search_api, params=params, timeout=req_timeout, proxies=proxies
                 )
                 response.raise_for_status()
 
@@ -282,7 +325,9 @@ class APIClient:
                     return {"type": "html", "data": response.text}
 
             except requests.exceptions.Timeout as e:
-                print(f"[X] 请求超时 (timeout={timeout}s): {e}")
+                print(
+                    f"[X] 请求超时 (connect={req_timeout[0]}s read={req_timeout[1]}s): {e}"
+                )
                 if retry < max_retries - 1:
                     wait_time = self.config.get("retry_delay", 5) * (retry + 1)
                     print(f"  [重试 {retry + 1}/{max_retries}] 等待 {wait_time} 秒...")
@@ -309,14 +354,82 @@ class APIClient:
 
         return None
 
+    def fetch_html(
+        self,
+        url: str,
+        data_source: Optional[Dict[str, Any]] = None,
+        referer: Optional[str] = None,
+    ) -> Optional[str]:
+        """GET 任意 URL，返回 HTML 文本（与详情请求相同的超时与编码处理）。
+
+        用于 gi.mnr.gov.cn 公开目录列表直爬，不经过 search 接口。
+        """
+        if data_source:
+            base_url = data_source.get("base_url", "https://gi.mnr.gov.cn/")
+            self.session.headers.update({"Referer": base_url})
+        else:
+            if referer:
+                self.session.headers.update({"Referer": referer})
+            else:
+                self.session.headers.update(
+                    {"Referer": self.config.get("base_url", "https://gi.mnr.gov.cn/")}
+                )
+
+        self._check_and_rotate_session()
+
+        max_retries = self.config.get("max_retries", 3)
+        req_timeout = request_timeout_tuple(self.config)
+
+        for retry in range(max_retries):
+            try:
+                proxies = self._get_proxy(force_new=(retry > 0))
+                response = self.session.get(
+                    url, timeout=req_timeout, proxies=proxies
+                )
+                response.raise_for_status()
+
+                if response.encoding is None or response.encoding.lower() in [
+                    "iso-8859-1",
+                    "windows-1252",
+                    "gbk",
+                    "gb2312",
+                    "gb18030",
+                ]:
+                    response.encoding = response.apparent_encoding or "utf-8"
+
+                if response.encoding and response.encoding.lower() in [
+                    "gbk",
+                    "gb2312",
+                    "gb18030",
+                    "big5",
+                    "big5hkscs",
+                ]:
+                    response.encoding = "utf-8"
+
+                return response.text
+
+            except Exception as e:
+                logger.debug("fetch_html failed: %s", e)
+                if retry < max_retries - 1:
+                    wait_time = self.config.get("retry_delay", 5) * (retry + 1)
+                    time.sleep(wait_time)
+                else:
+                    return None
+
+        return None
+
     def get_policy_detail(
-        self, url: str, data_source: Optional[Dict[str, Any]] = None
+        self,
+        url: str,
+        data_source: Optional[Dict[str, Any]] = None,
+        html_text: Optional[str] = None,
     ) -> Dict[str, Any]:
         """获取政策详情页正文和附件（自然资源部API）
 
         Args:
             url: 政策详情页URL
             data_source: 数据源配置（如果为None，根据URL自动判断）
+            html_text: 若已持有页面 HTML（如与 fetch_html 共用），则不再发起 GET
 
         Returns:
             包含content和attachments的字典
@@ -341,35 +454,43 @@ class APIClient:
         self._check_and_rotate_session()
 
         max_retries = self.config.get("max_retries", 3)
+        detail_timeout = request_timeout_tuple(self.config)
+        if html_text is not None:
+            max_retries = 1
         for retry in range(max_retries):
             try:
-                proxies = self._get_proxy(force_new=(retry > 0))
-                response = self.session.get(
-                    url, timeout=self.config.get("timeout", 30), proxies=proxies
-                )
-                response.raise_for_status()
+                if html_text is not None:
+                    text_body = html_text
+                else:
+                    proxies = self._get_proxy(force_new=(retry > 0))
+                    response = self.session.get(
+                        url, timeout=detail_timeout, proxies=proxies
+                    )
+                    response.raise_for_status()
 
-                # 设置编码，强制使用UTF-8处理中文网站
-                if response.encoding is None or response.encoding.lower() in [
-                    "iso-8859-1",
-                    "windows-1252",
-                    "gbk",
-                    "gb2312",
-                    "gb18030",
-                ]:
-                    response.encoding = response.apparent_encoding or "utf-8"
+                    # 设置编码，强制使用UTF-8处理中文网站
+                    if response.encoding is None or response.encoding.lower() in [
+                        "iso-8859-1",
+                        "windows-1252",
+                        "gbk",
+                        "gb2312",
+                        "gb18030",
+                    ]:
+                        response.encoding = response.apparent_encoding or "utf-8"
 
-                # 如果检测到可能是中文编码，强制设置为UTF-8
-                if response.encoding and response.encoding.lower() in [
-                    "gbk",
-                    "gb2312",
-                    "gb18030",
-                    "big5",
-                    "big5hkscs",
-                ]:
-                    response.encoding = "utf-8"
+                    # 如果检测到可能是中文编码，强制设置为UTF-8
+                    if response.encoding and response.encoding.lower() in [
+                        "gbk",
+                        "gb2312",
+                        "gb18030",
+                        "big5",
+                        "big5hkscs",
+                    ]:
+                        response.encoding = "utf-8"
 
-                soup = BeautifulSoup(response.text, "html.parser")
+                    text_body = response.text
+
+                soup = BeautifulSoup(text_body, "html.parser")
 
                 # 针对自然资源部网站的特定结构：正文在 <div id="content"> 或 <div class="TRS_Editor"> 中
                 # 优先查找 id="content" 的div（这是真正的正文容器）
@@ -652,8 +773,103 @@ class APIClient:
 
         return merged
 
+    def _update_metadata_from_label_value(
+        self, metadata: Dict[str, str], label: str, value: str
+    ) -> None:
+        """根据一对标签/值写入 metadata（政策法规 f.mnr 与政务公开 gi.mnr 等页面通用）。"""
+        if not label:
+            return
+        if value is None:
+            value = ""
+        label_clean = (
+            label.replace("\xa0", "")
+            .replace("\u00a0", "")
+            .replace(" ", "")
+            .strip()
+        )
+        value = value.strip()
+        if not label_clean:
+            return
+
+        if "发文字号" in label_clean or (
+            "文号" in label_clean and "索引" not in label_clean
+        ):
+            if "doc_number" not in metadata or not metadata.get("doc_number"):
+                metadata["doc_number"] = value
+            return
+
+        if "发布机构" in label_clean or (
+            "机构" in label_clean and "发布" in label_clean
+        ):
+            if "publisher" not in metadata or not metadata.get("publisher"):
+                metadata["publisher"] = value
+            return
+
+        if "主题" in label_clean:
+            if "category" not in metadata or not metadata.get("category"):
+                metadata["category"] = value
+            return
+
+        if "名称" in label_clean and "索引" not in label_clean:
+            if "title" not in metadata or not metadata.get("title"):
+                metadata["title"] = value
+            return
+
+        if "业务类型" in label_clean or "分类" in label_clean:
+            if "category" not in metadata or not metadata.get("category"):
+                metadata["category"] = value
+            return
+
+        if "体裁" in label_clean:
+            if "validity" not in metadata or not metadata.get("validity"):
+                metadata["validity"] = value
+            return
+
+        if (
+            (
+                "成文时间" in label_clean
+                or "成文日期" in label_clean
+                or "生成日期" in label_clean
+                or "发布日期" in label_clean
+                or "公布日期" in label_clean
+            )
+            and "效力" not in label_clean
+            and "级别" not in label_clean
+        ):
+            if (
+                any(keyword in value for keyword in ["年", "月", "日"])
+                or len(value) >= 8
+            ):
+                if "pub_date" not in metadata or not metadata.get("pub_date"):
+                    metadata["pub_date"] = value
+            return
+
+        if "效力级别" in label_clean or (
+            "级别" in label_clean and "效力" in label_clean
+        ):
+            if "level" not in metadata or not metadata.get("level"):
+                metadata["level"] = value
+            return
+
+        if "生效日期" in label_clean or "实施日期" in label_clean:
+            if "effective_date" not in metadata or not metadata.get(
+                "effective_date"
+            ):
+                metadata["effective_date"] = value
+            return
+
+        if "时效状态" in label_clean or (
+            "状态" in label_clean and "时效" in label_clean
+        ):
+            if "validity" not in metadata or not metadata.get("validity"):
+                metadata["validity"] = value
+
     def _extract_metadata(self, soup: BeautifulSoup) -> Dict[str, str]:
-        """从详情页提取元信息（针对自然资源部网站的特定结构，支持 gi.mnr.gov.cn 和 f.mnr.gov.cn）
+        """从详情页提取元信息。
+
+        - **f.mnr.gov.cn（政策法规库）**：常见为 ``div.dtl-middle`` + mid-1～mid-4 的 span 列布局。
+        - **gi.mnr.gov.cn（政府信息公开/公开目录）**：常见为 ``table`` 多列布局（一行内往往为
+          标签|值|标签|值 四列），需按列成对解析。
 
         Args:
             soup: BeautifulSoup对象
@@ -663,8 +879,7 @@ class APIClient:
         """
         metadata = {}
 
-        # 自然资源部网站使用div结构存储元信息，在dtl-middle中（gi.mnr.gov.cn 和 f.mnr.gov.cn 都使用）
-        # 查找dtl-middle容器
+        # 政策法规库：div.dtl-middle（gi 政务公开页通常无此节点）
         dtl_middle = soup.find("div", class_="dtl-middle")
         if dtl_middle:
             # 查找mid-1到mid-4的div，它们包含标签和值
@@ -716,14 +931,11 @@ class APIClient:
                         elif "发布机构" in label_clean or (
                             "机构" in label_clean and "发布" in label_clean
                         ):
-                            # 发布机构应该存储到publisher字段，而不是level
+                            # 发布机构仅写入 publisher，对应官网「发布机构」字段
                             if "publisher" not in metadata or not metadata.get(
                                 "publisher"
                             ):
                                 metadata["publisher"] = value
-                            # 如果level字段还未设置，也可以设置（向后兼容）
-                            if "level" not in metadata or not metadata.get("level"):
-                                metadata["level"] = value
                         elif "业务类型" in label_clean or "分类" in label_clean:
                             if "category" not in metadata or not metadata.get(
                                 "category"
@@ -767,6 +979,7 @@ class APIClient:
                         if (
                             (
                                 "成文时间" in label_clean
+                                or "成文日期" in label_clean
                                 or "生成日期" in label_clean
                                 or "发布日期" in label_clean
                             )
@@ -785,10 +998,9 @@ class APIClient:
                         elif "效力级别" in label_clean or (
                             "级别" in label_clean and "效力" in label_clean
                         ):
-                            if "validity" not in metadata or not metadata.get(
-                                "validity"
-                            ):
-                                metadata["validity"] = value
+                            # 效力级别对应数据库 level，与「发布机构」分离
+                            if "level" not in metadata or not metadata.get("level"):
+                                metadata["level"] = value
                         elif "生效日期" in label_clean or "实施日期" in label_clean:
                             if "effective_date" not in metadata or not metadata.get(
                                 "effective_date"
@@ -802,66 +1014,26 @@ class APIClient:
                             ):
                                 metadata["validity"] = value
 
-        # 如果从dtl-middle没提取到，尝试从表格中提取（兼容其他结构）
+        # 政务公开等页面：无 dtl-middle 时为表格布局；一行内常见 4 列「标签|值|标签|值」
         if not metadata:
             tables = soup.find_all("table")
             for table in tables:
                 rows = table.find_all("tr")
                 for row in rows:
                     cells = row.find_all(["td", "th"])
-                    if len(cells) >= 2:
+                    pair_index = 0
+                    while pair_index + 1 < len(cells):
                         label = (
-                            cells[0]
+                            cells[pair_index]
                             .get_text(strip=True)
                             .replace("\xa0", "")
                             .replace("\u00a0", "")
                         )
-                        value = cells[1].get_text(strip=True)
-
-                        # 提取各种元信息
-                        # 发布日期：必须是日期格式，不能是效力级别
-                        if (
-                            (
-                                "成文时间" in label
-                                or "生成日期" in label
-                                or "发布日期" in label
-                            )
-                            and "效力" not in label
-                            and "级别" not in label
-                        ):
-                            # 验证值是否是日期格式（包含年月日或长度>=8）
-                            if (
-                                any(keyword in value for keyword in ["年", "月", "日"])
-                                or len(value) >= 8
-                            ):
-                                if (
-                                    "pub_date" not in metadata
-                                    or not metadata["pub_date"]
-                                ):
-                                    metadata["pub_date"] = value
-                        elif "发布机构" in label or (
-                            "机构" in label and "发布" in label
-                        ):
-                            # 发布机构应该存储到publisher字段
-                            if "publisher" not in metadata or not metadata.get(
-                                "publisher"
-                            ):
-                                metadata["publisher"] = value
-                            # 如果level字段还未设置，也可以设置（向后兼容）
-                            if "level" not in metadata or not metadata["level"]:
-                                metadata["level"] = value
-                        elif "效力级别" in label or "级别" in label:
-                            if "validity" not in metadata or not metadata["validity"]:
-                                metadata["validity"] = value
-                        elif "业务类型" in label or "分类" in label:
-                            if "category" not in metadata or not metadata["category"]:
-                                metadata["category"] = value
-                        elif "生效日期" in label or "实施日期" in label:
-                            if (
-                                "effective_date" not in metadata
-                                or not metadata["effective_date"]
-                            ):
-                                metadata["effective_date"] = value
+                        value = cells[pair_index + 1].get_text(strip=True)
+                        self._update_metadata_from_label_value(
+                            metadata, label, value
+                        )
+                        pair_index += 2
 
         # 后备逻辑：根据文号推断发布机构（针对自然资源部网站）
         # 检查是否已经有文号，如果有则尝试推断发布机构
@@ -869,7 +1041,6 @@ class APIClient:
         if existing_doc_number and not metadata.get("publisher"):
             if existing_doc_number.startswith("自然资发"):
                 metadata["publisher"] = "自然资源部"
-                metadata["level"] = "自然资源部"
                 logger.debug(
                     f"根据文号推断发布机构: {existing_doc_number} -> 自然资源部"
                 )
@@ -877,13 +1048,11 @@ class APIClient:
                 "国土资发"
             ) or existing_doc_number.startswith("国土调查办发"):
                 metadata["publisher"] = "国土资源部"
-                metadata["level"] = "国土资源部"
                 logger.debug(
                     f"根据文号推断发布机构: {existing_doc_number} -> 国土资源部"
                 )
             elif existing_doc_number.startswith("国土资源部"):
                 metadata["publisher"] = "国土资源部"
-                metadata["level"] = "国土资源部"
                 logger.debug(
                     f"根据文号推断发布机构: {existing_doc_number} -> 国土资源部"
                 )

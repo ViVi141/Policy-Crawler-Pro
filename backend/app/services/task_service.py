@@ -678,6 +678,22 @@ class TaskService:
                                 "channel_id": ds.get("channel_id", ""),
                                 "enabled": ds.get("enabled", True),
                             }
+                            if ds.get("search_portal_url") is not None:
+                                validated_ds["search_portal_url"] = ds.get(
+                                    "search_portal_url"
+                                )
+                            if ds.get("mnr_crawl_mode") is not None:
+                                validated_ds["mnr_crawl_mode"] = ds.get(
+                                    "mnr_crawl_mode"
+                                )
+                            if ds.get("gi_list_index_file") is not None:
+                                validated_ds["gi_list_index_file"] = ds.get(
+                                    "gi_list_index_file"
+                                )
+                            if ds.get("gi_article_seed_urls") is not None:
+                                validated_ds["gi_article_seed_urls"] = ds.get(
+                                    "gi_article_seed_urls"
+                                )
                             # 验证MNR数据源必需字段
                             required_fields = [
                                 "name",
