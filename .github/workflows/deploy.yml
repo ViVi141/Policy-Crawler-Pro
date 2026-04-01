@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Deploy to server
-        uses: appleboy/ssh-action@v1.2.4
+        uses: appleboy/ssh-action@v1.2.5
         if: env.SSH_HOST != ''
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
@@ -59,7 +59,7 @@ jobs:
         if: env.SSH_HOST != ''
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
-        uses: appleboy/ssh-action@v1.2.4
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
