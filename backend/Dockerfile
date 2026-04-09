@@ -13,7 +13,7 @@
 # ==============================================================================
 
 # 构建阶段 - 安装依赖
-FROM python:3.12-slim AS builder
+FROM python:3.14-slim AS builder
 
 WORKDIR /app
 
@@ -68,7 +68,7 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel --timeout=300 --re
     pip install --no-cache-dir -r requirements.txt --timeout=300 --retries=5
 
 # 生产阶段
-FROM python:3.12-slim AS production
+FROM python:3.14-slim AS production
 
 WORKDIR /app
 
