@@ -10,7 +10,7 @@ python-multipart>=0.0.6
 sqlalchemy>=2.0.23
 alembic>=1.12.1
 psycopg2-binary>=2.9.9  # PostgreSQL驱动
-asyncpg>=0.29.0  # 异步PostgreSQL驱动（可选）
+asyncpg>=0.31.0  # 异步PostgreSQL驱动（可选）
 
 # 认证和安全
 python-jose[cryptography]>=3.3.0
