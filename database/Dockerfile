@@ -13,7 +13,7 @@
 # ==============================================================================
 
 # PostgreSQL 18
-FROM postgres:18-alpine
+FROM postgres:19-alpine
 
 # 配置 Alpine 镜像源（使用清华大学镜像，加速下载）
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories || \
